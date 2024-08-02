@@ -8,6 +8,8 @@ from collections import defaultdict
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics.pairwise import euclidean_distances
 from sklearn.metrics.pairwise import cosine_similarity
+from scipy.optimize import minimize
+
 
 
 # Load team colors from the text file
@@ -725,7 +727,7 @@ def calculate_similarity_scores(player_data, target_player, stats_to_compare):
     
     return results
 
-def player_similarity_view(data_type):
+def player_similarity_view():
     st.subheader("Player Similarity Scores")
 
     player_type = st.radio("Would you like to find similar hitters or pitchers?", ("Hitters", "Pitchers"))
@@ -790,6 +792,237 @@ def player_similarity_view(data_type):
 
     st.info(f"Note: This similarity comparison is for {player_type.lower()} only. To find similar {'pitchers' if player_type == 'Hitters' else 'hitters'}, please start a new similarity search.")
 
+def custom_war_generator():
+    st.subheader("Custom WAR Generator")
+
+    # Explanation of WAR
+    st.markdown("""
+    ### What is WAR?
+    WAR (Wins Above Replacement) is a comprehensive statistic that attempts to summarize a player's total contributions to their team in one statistic. It's calculated differently for position players and pitchers.
+
+    #### bWAR (Baseball-Reference WAR):
+    - For position players: Combines batting, baserunning, and fielding value adjusted for position and league.
+    - For pitchers: Based on runs allowed with adjustments for team defense, ballpark, and quality of opposition.
+
+    #### fWAR (FanGraphs WAR):
+    - For position players: Similar to bWAR but uses different defensive metrics and offensive weights.
+    - For pitchers: Based on FIP (Fielding Independent Pitching) rather than runs allowed.
+
+    Both versions aim to measure a player's value in terms of wins above what a replacement-level player would provide.
+
+    This tool allows you to create your own version of WAR by adjusting the weights of various statistics.
+    """)
+
+    player_type = st.radio("Select player type:", ("Hitters", "Pitchers"))
+    data_type = "Hitter" if player_type == "Hitters" else "Pitcher"
+
+    data_df = load_and_filter_data(data_type)
+
+    # [Year and age restriction code remains the same]
+
+    if data_type == "Hitter":
+        default_stats = ['AVG', 'OBP', 'SLG', 'HR', 'RBI', 'SB', 'BB%', 'K%', 'ISO', 'wRC+', 'Def']
+    else:  # Pitcher
+        default_stats = ['ERA', 'WHIP', 'K/9', 'BB/9', 'HR/9', 'FIP', 'IP', 'W', 'SV']
+
+    # Option to include additional stats
+    additional_stats = st.multiselect("Select additional stats to include:", 
+                                      [col for col in data_df.columns if col not in default_stats + ['Name', 'Team', 'year', 'Age', 'IDfg']])
+    
+    all_stats = default_stats + additional_stats
+
+    # Create toggles for each stat
+    st.write("Toggle stats to include in your custom WAR calculation:")
+    stat_toggles = {}
+    for stat in all_stats:
+        if stat in data_df.columns:
+            stat_toggles[stat] = st.checkbox(f"Include {stat}", value=True)
+
+    # Filter stats based on toggles
+    stats_to_use = [stat for stat in all_stats if stat_toggles.get(stat, False)]
+
+    st.write("Adjust the weights for each included statistic to create your custom WAR:")
+    
+    weights = {}
+    for stat in stats_to_use:
+        weights[stat] = st.slider(f"Weight for {stat}", min_value=-1.0, max_value=1.0, value=0.1, step=0.1)
+
+    if st.button("Generate Custom WAR"):
+        if not stats_to_use:
+            st.warning("Please select at least one stat to include in the WAR calculation.")
+            return
+
+        # Normalize the data
+        scaler = MinMaxScaler()
+        scaled_data = pd.DataFrame(scaler.fit_transform(data_df[stats_to_use]), 
+                                   columns=stats_to_use, index=data_df.index)
+
+        # Calculate custom WAR
+        custom_war = pd.Series(0, index=data_df.index)
+        for stat, weight in weights.items():
+            custom_war += scaled_data[stat] * weight
+
+        # Normalize custom WAR to a familiar scale (e.g., -2 to 10)
+        custom_war = (custom_war - custom_war.min()) / (custom_war.max() - custom_war.min()) * 12 - 2
+
+        # Add custom WAR to the dataframe
+        data_df['Custom WAR'] = custom_war
+
+        # Display top players by custom WAR
+        st.subheader("Top Players by Custom WAR")
+        top_players = data_df.groupby('Name')['Custom WAR'].mean().sort_values(ascending=False).head(20)
+        st.table(top_players.round(2))
+
+        # Visualize custom WAR distribution
+        fig = px.histogram(data_df, x='Custom WAR', nbins=50, 
+                           title="Distribution of Custom WAR")
+        st.plotly_chart(fig)
+
+        # Compare custom WAR to traditional WAR
+        if 'WAR' in data_df.columns:
+            fig = px.scatter(data_df, x='WAR', y='Custom WAR', hover_data=['Name'],
+                             title="Custom WAR vs Traditional WAR")
+            st.plotly_chart(fig)
+
+        # Option to download the data
+        csv = data_df[['Name', 'Team', 'year', 'Age', 'Custom WAR'] + stats_to_use].to_csv(index=False)
+        st.download_button(
+            label="Download Custom WAR Data",
+            data=csv,
+            file_name="custom_war_data.csv",
+            mime="text/csv",
+        )
+
+def how_is_he_the_goat():
+    st.subheader("How is he the GOAT?")
+
+    st.markdown("""
+    This tool attempts to find the optimal weights for a selected set of baseball statistics that would make a chosen player the Greatest of All Time (GOAT). Here's how it works:
+    
+    1. You select a player and a time frame.
+    2. The tool considers a predefined set of key stats for batters or pitchers.
+    3. It then calculates weights for these stats that would rank your chosen player as the best among all players.
+    4. If successful, it shows the weights and the resulting player rankings.
+    5. If unsuccessful, it informs you that it's impossible to make that player the GOAT with the given data.
+
+    Note: Some statistics are inversely weighted in the calculation. For batters, this includes stats like Strikeouts (SO) and Ground into Double Play (GDP), where lower values are better. For pitchers, this includes ERA, Walks (BB), and Hits Allowed (H), among others. The tool automatically adjusts for these "negative" stats in its calculations.
+
+
+    This is a mathematical exercise and doesn't necessarily reflect real-world value. It's designed to explore what aspects of a player's performance would need to be emphasized to consider them the greatest.
+    """)
+
+    player_type = st.radio("Select player type:", ("Hitters", "Pitchers"))
+    data_type = "Hitter" if player_type == "Hitters" else "Pitcher"
+
+    data_df = load_and_filter_data(data_type)
+
+    # Year range selection
+    min_year, max_year = int(data_df['year'].min()), int(data_df['year'].max())
+    year_range = st.slider("Select year range:", min_year, max_year, (min_year, max_year))
+    data_df = data_df[(data_df['year'] >= year_range[0]) & (data_df['year'] <= year_range[1])]
+
+    # Player selection
+    players = data_df['Name'].unique()
+    selected_player = st.selectbox("Select a player:", players)
+
+    # Define stats to use based on player type
+    if data_type == "Hitter":
+        stats_to_use = ['G', 'AB', 'PA', 'H', '1B', '2B', '3B', 'HR', 'R', 'RBI', 'BB', 'IBB', 'SO', 'HBP', 'SF', 'SH', 'GDP', 'SB', 'CS', 'AVG', 'GB', 'FB', 'LD', 'IFFB', 'Pitches', 'Balls', 'Strikes', 'IFH', 'BU', 'BUH', 'BB%', 'K%', 'BB/K', 'OBP', 'SLG', 'OPS', 'ISO', 'BABIP', 'GB/FB', 'LD%', 'GB%', 'FB%', 'IFFB%', 'Bat', 'Fld', 'Spd']
+        # Stats where higher is worse
+        negative_stats = ['GDP', 'CS', 'SO']
+    else:  # Pitcher
+        stats_to_use = ['W', 'L', 'ERA', 'G', 'GS', 'CG', 'ShO', 'SV', 'BS', 'IP', 'TBF', 'H', 'R', 'ER', 'HR', 'BB', 'IBB', 'HBP', 'WP', 'BK', 'SO', 'GB', 'FB', 'LD', 'IFFB', 'Balls', 'Strikes', 'Pitches', 'RS', 'K/9', 'BB/9', 'K/BB', 'H/9', 'HR/9', 'AVG', 'WHIP', 'BABIP', 'LOB%', 'FIP']
+        # Stats where higher is worse
+        negative_stats = ['L', 'ERA', 'R', 'ER', 'HR', 'BB', 'IBB', 'HBP', 'WP', 'BK', 'BB/9', 'H/9', 'HR/9', 'AVG', 'WHIP', 'BABIP', 'FIP']
+
+    # Filter stats that are actually in the dataframe
+    stats_to_use = [stat for stat in stats_to_use if stat in data_df.columns]
+
+    if st.button("Find GOAT Weights"):
+        # Normalize the data
+        scaler = MinMaxScaler()
+        scaled_data = pd.DataFrame(scaler.fit_transform(data_df[stats_to_use]), 
+                                   columns=stats_to_use, index=data_df.index)
+
+        # Invert negative stats
+        for stat in negative_stats:
+            if stat in scaled_data.columns:
+                scaled_data[stat] = 1 - scaled_data[stat]
+
+        # Group by player and take the mean of their stats
+        player_stats = scaled_data.groupby(data_df['Name']).mean()
+
+        # Handle missing data for the selected player
+        selected_player_stats = player_stats.loc[selected_player]
+        available_stats = selected_player_stats.dropna().index
+        player_stats = player_stats[available_stats]
+
+        # Function to optimize
+        def objective(weights):
+            war = (player_stats * weights).sum(axis=1)
+            player_war = war[selected_player]
+            return np.sum(np.maximum(0, war - player_war))  # Sum of how much others exceed the player
+
+        # Constraints: sum of absolute weights = 1
+        def constraint(weights):
+            return np.sum(np.abs(weights)) - 1
+
+        # Initial guess
+        initial_weights = np.ones(len(available_stats)) / len(available_stats)
+
+        # Optimize
+        result = minimize(objective, initial_weights, method='SLSQP', 
+                          constraints={'type': 'eq', 'fun': constraint},
+                          options={'ftol': 1e-10, 'maxiter': 1000})
+
+        if result.success and result.fun < 1e-5:  # Check if optimization succeeded and player is at the top
+            optimal_weights = result.x
+            
+            # Calculate WAR with optimal weights
+            war = (player_stats * optimal_weights).sum(axis=1)
+            player_rankings = war.sort_values(ascending=False)
+            
+            st.success(f"Optimal weights found to make {selected_player} the GOAT!")
+            
+            # Display weights in ranked order
+            st.subheader("Optimal Weights (Ranked by Importance):")
+            weight_df = pd.DataFrame({'Stat': available_stats, 'Weight': optimal_weights})
+            weight_df['Abs_Weight'] = np.abs(weight_df['Weight'])
+            weight_df = weight_df.sort_values('Abs_Weight', ascending=False)
+            for _, row in weight_df.iterrows():
+                if row['Abs_Weight'] > 1e-4:  # Only show weights that are not essentially zero
+                    st.write(f"{row['Stat']}: {row['Weight']:.4f}")
+            
+            # Display player ranking
+            st.subheader("Top 10 Players with these weights:")
+            st.table(player_rankings.head(10))
+            
+            # Show selected player's rank
+            player_rank = player_rankings.index.get_loc(selected_player) + 1
+            st.write(f"{selected_player}'s rank with these weights: {player_rank}")
+
+            # Generate explanation
+            top_positive_stats = weight_df[weight_df['Weight'] > 0].nlargest(3, 'Abs_Weight')['Stat'].tolist()
+            top_negative_stats = weight_df[weight_df['Weight'] < 0].nlargest(2, 'Abs_Weight')['Stat'].tolist()
+            
+            explanation = f"{selected_player} is considered the GOAT in this analysis primarily due to "
+            explanation += f"their exceptional performance in {', '.join(top_positive_stats[:-1])}, and {top_positive_stats[-1]}. "
+            if top_negative_stats:
+                explanation += f"The model also values their ability to minimize {' and '.join(top_negative_stats)}. "
+            explanation += "This combination of strengths sets them apart in this particular weighting scheme."
+            
+            st.subheader("Explanation:")
+            st.write(explanation)
+            
+            # Display stats used
+            st.subheader("Stats Used in Calculation:")
+            st.write(", ".join(available_stats))
+            
+        else:
+            st.error(f"Sadly, it is impossible for {selected_player} to be the GOAT with the given stats and time frame.")
+            st.write("Try adjusting the year range or selecting a different player.")
+
+# Update the main function to include the new option
 def main():
     st.title("Brock's Baseball Stats Explorer")
     
@@ -797,7 +1030,9 @@ def main():
     
     st.sidebar.title("Navigation")
     app_mode = st.sidebar.radio("Choose the mode",
-                                ["Individual Player", "Compare Players", "League-wide Stats", "Career Stat Race", "Player Similarity"])
+                                ["Individual Player", "Compare Players", "League-wide Stats", 
+                                 "Career Stat Race", "Player Similarity", "Custom WAR Generator",
+                                 "How is he the GOAT?"])
     
     # Reset session state when changing modes
     if 'current_mode' not in st.session_state or st.session_state.current_mode != app_mode:
@@ -812,8 +1047,12 @@ def main():
         league_wide_stats_view()
     elif app_mode == "Career Stat Race":
         race_chart_view()
-    else:  # Player Similarity
+    elif app_mode == "Player Similarity":
         player_similarity_view()
+    elif app_mode == "Custom WAR Generator":
+        custom_war_generator()
+    else:  # How is he the GOAT?
+        how_is_he_the_goat()
 
 if __name__ == "__main__":
     main()
