@@ -45,19 +45,49 @@ def load_and_filter_data(data_type, player_names_or_ids=None):
 def get_team_color(team, team_colors):
     return team_colors.get(str(team).upper(), 'grey')
 
-def individual_player_view(data_type):
+def individual_player_view():
+    st.subheader("Individual Player Statistics")
+
+    # Ask user to choose between hitters and pitchers
+    player_type = st.radio("Would you like to see stats for a hitter or a pitcher?", ("Hitter", "Pitcher"))
+
     player_input = st.text_input("Enter player name or FanGraphs ID:", "Shohei Ohtani")
+    
     if st.button("Load Player Data") or ('player_data' in st.session_state and st.session_state.player_data is not None):
         if 'player_data' not in st.session_state or st.session_state.player_data is None:
-            st.session_state.player_data = load_and_filter_data(data_type, [player_input])
+            # Load data for both hitter and pitcher
+            hitter_data = load_and_filter_data("Hitter", [player_input])
+            pitcher_data = load_and_filter_data("Pitcher", [player_input])
+            
+            # Combine the data
+            st.session_state.player_data = pd.concat([hitter_data, pitcher_data])
         
         if st.session_state.player_data.empty:
             st.error(f"No data found for {player_input}")
         else:
             st.success(f"Data loaded for {player_input}")
-            display_player_stats(st.session_state.player_data)
+            
+            # Filter data based on selected player type
+            filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] == player_type.lower()]
+            
+            if filtered_data.empty:
+                st.warning(f"No {player_type.lower()} data found for {player_input}. They might be a {['pitcher', 'hitter'][player_type == 'Pitcher']}.")
+                if st.button(f"Show {['pitcher', 'hitter'][player_type == 'Pitcher']} data instead"):
+                    filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] != player_type.lower()]
+            
+            if not filtered_data.empty:
+                display_player_stats(filtered_data, player_type)
+            else:
+                st.error(f"No data available for {player_input}")
 
-def compare_players_view(data_type):
+
+def compare_players_view():
+    st.subheader("Compare Players")
+
+    # Ask user to choose between hitters and pitchers
+    player_type = st.radio("Would you like to compare hitters or pitchers?", ("Hitters", "Pitchers"))
+    data_type = "Hitter" if player_type == "Hitters" else "Pitcher"
+
     st.subheader("Enter up to 10 player names or FanGraphs IDs (one per line):")
     player_inputs = st.text_area("Player Names or IDs", "Shohei Ohtani\nMike Trout").split('\n')
     player_inputs = [input.strip() for input in player_inputs if input.strip()][:10]  # Limit to 10 players
@@ -69,18 +99,41 @@ def compare_players_view(data_type):
 
     if st.button("Load Players Data") or ('player_data' in st.session_state and st.session_state.player_data is not None):
         if 'player_data' not in st.session_state or st.session_state.player_data is None:
-            st.session_state.player_data = load_and_filter_data(data_type, player_inputs)
-        
+            # Load data for both hitters and pitchers
+            hitter_data = load_and_filter_data("Hitter", player_inputs)
+            pitcher_data = load_and_filter_data("Pitcher", player_inputs)
+            
+            # Combine the data
+            st.session_state.player_data = pd.concat([hitter_data, pitcher_data])
+
         if st.session_state.player_data.empty:
             st.error("No data found for the specified players")
         else:
-            st.success(f"Data loaded for {len(player_inputs)} player(s)")
-            display_player_stats(st.session_state.player_data)
+            # Filter data based on selected player type
+            filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] == data_type.lower()]
+            
+            if filtered_data.empty:
+                st.warning(f"No {data_type.lower()} data found for the specified players. They might be {['pitchers', 'hitters'][data_type == 'Pitcher']}.")
+                if st.button(f"Show {['pitcher', 'hitter'][data_type == 'Pitcher']} data instead"):
+                    filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] != data_type.lower()]
+            
+            if not filtered_data.empty:
+                st.success(f"Data loaded for {len(filtered_data['IDfg'].unique())} player(s)")
+                display_player_stats(filtered_data, data_type)
+            else:
+                st.error("No data available for the specified players")
 
-def display_player_stats(player_data):
+def display_player_stats(player_data, player_type):
     team_colors = load_team_colors()
     id_to_name = player_data.groupby('IDfg')['Name'].first().to_dict()
     player_data = player_data.sort_values(['IDfg', 'year'])
+
+    # Define rate stats for hitters and pitchers
+    hitter_rate_stats = ['AVG', 'OBP', 'SLG', 'OPS', 'BB%', 'K%', 'ISO', 'BABIP', 'wRC+', 'wOBA', 'WAR', 'Off', 'Def', 'BsR', 'RAR', 'WAR/162', 'Off/162', 'Def/162', 'WPA', '-WPA', '+WPA', 'RE24', 'REW', 'pLI', 'phLI', 'WPA/LI', 'Clutch', 'FB%', 'GB%', 'LD%', 'Pull%', 'Cent%', 'Oppo%', 'Soft%', 'Med%', 'Hard%', 'IFFB%', 'IFH%', 'BUH%', 'O-Swing%', 'Z-Swing%', 'Swing%', 'O-Contact%', 'Z-Contact%', 'Contact%', 'Zone%', 'F-Strike%', 'SwStr%']
+    pitcher_rate_stats = ['ERA', 'WHIP', 'K/9', 'BB/9', 'HR/9', 'K%', 'BB%', 'K-BB%', 'AVG', 'BABIP', 'LOB%', 'FIP', 'xFIP', 'WAR', 'ERA-', 'FIP-', 'xFIP-', 'WPA', '-WPA', '+WPA', 'RE24', 'REW', 'pLI', 'inLI', 'gmLI', 'WPA/LI', 'Clutch', 'FB%', 'GB%', 'LD%', 'IFFB%', 'HR/FB', 'IFH%', 'BUH%', 'O-Swing%', 'Z-Swing%', 'Swing%', 'O-Contact%', 'Z-Contact%', 'Contact%', 'Zone%', 'F-Strike%', 'SwStr%']
+
+    # Determine which rate stats to use based on player type
+    rate_stats = hitter_rate_stats if player_type == "Hitter" else pitcher_rate_stats
 
     st.header("Career Summary")
     for idfg in player_data['IDfg'].unique():
@@ -89,38 +142,50 @@ def display_player_stats(player_data):
         st.write(f"{player_name} (ID: {idfg}): {player_career['year'].min()} - {player_career['year'].max()} ({len(player_career)} seasons)")
 
     st.header("Career Stats")
-    career_stats = player_data.groupby('IDfg').agg({col: 'sum' for col in player_data.select_dtypes(include=['int64', 'float64']).columns if col not in ['year', 'IDfg']})
+    career_stats = player_data.groupby('IDfg').agg(
+        {col: 'mean' if col in rate_stats else 'sum' 
+         for col in player_data.select_dtypes(include=['int64', 'float64']).columns 
+         if col not in ['year', 'IDfg']}
+    )
     career_stats['Name'] = career_stats.index.map(id_to_name)
+    
+    # Move 'Age' to the end if it exists
+    if 'Age' in career_stats.columns:
+        age_col = career_stats.pop('Age')
+        career_stats['Age'] = age_col
+
     career_stats = career_stats.reset_index().set_index(['Name', 'IDfg'])
-    st.dataframe(career_stats)
+    
+    # Format the display to remove commas
+    st.dataframe(career_stats.applymap(lambda x: f"{x:.0f}" if isinstance(x, (int, float)) else x))
 
     st.header("Yearly Stats")
     yearly_stats = player_data.copy()
     yearly_stats['Name'] = yearly_stats['IDfg'].map(id_to_name)
-    st.dataframe(yearly_stats.set_index(['Name', 'IDfg', 'year']))
+    
+    # Format the display to remove commas
+    formatted_yearly_stats = yearly_stats.applymap(lambda x: f"{x:.0f}" if isinstance(x, (int, float)) else x)
+    st.dataframe(formatted_yearly_stats.set_index(['Name', 'IDfg', 'year']))
 
     st.header("Stat Explorer")
     numeric_columns = player_data.select_dtypes(include=['int64', 'float64']).columns
     stat_options = [col for col in numeric_columns if col not in ['year', 'IDfg']]
     
     # Determine default stat based on player type
-    if 'ERA' in stat_options:
-        default_stat = 'ERA'
-    elif 'H' in stat_options:
-        default_stat = 'H'
+    if player_type == "Pitcher":
+        default_stat = 'ERA' if 'ERA' in stat_options else stat_options[0]
     else:
-        default_stat = stat_options[0]  # Fallback to first available stat
+        default_stat = 'HR' if 'HR' in stat_options else stat_options[0]
 
-    col1, col2 = st.columns(2)
-    with col1:
-        selected_stat = st.selectbox("Choose a stat to visualize:", stat_options, index=stat_options.index(default_stat))
-    with col2:
-        chart_type = st.radio("Select chart type:", ["Line"])
+    selected_stat = st.selectbox("Choose a stat to visualize:", stat_options, index=stat_options.index(default_stat))
 
-    if chart_type == "Line":
-        fig = px.line(player_data, x='year', y=selected_stat, color='IDfg', 
-                      title=f"{selected_stat} Over Time")
-    
+    # Season-by-season plot
+    fig = px.line(player_data, x='year', y=selected_stat, color='IDfg', 
+                  title=f"{selected_stat} Over Time",
+                  hover_data={'IDfg': False, 'Name': True, selected_stat: ':.2f'})
+
+    fig.update_traces(hovertemplate='Name: %{customdata[0]}<br>Year: %{x}<br>' + f'{selected_stat}: ' + '%{y:.2f}<extra></extra>')
+
     for trace in fig.data:
         idfg = int(trace.name)
         player_subset = player_data[player_data['IDfg'] == idfg]
@@ -128,164 +193,246 @@ def display_player_stats(player_data):
             player_info = player_subset.iloc[-1]
             trace.name = player_info['Name']
             trace.line.color = get_team_color(player_info['Team'], team_colors)
+            trace.customdata = player_subset[['Name']]
         else:
             trace.name = f"Unknown Player (ID: {idfg})"
             trace.line.color = 'grey'
+            trace.customdata = np.full((len(trace.x), 1), f"Unknown Player (ID: {idfg})")
     
     st.plotly_chart(fig)
 
-    cumulative_data = []
+    # Calculate cumulative stats or career average for rate stats
+    career_data = []
     for idfg, group in player_data.groupby('IDfg'):
         group = group.sort_values('year')
         group['career_year'] = range(1, len(group) + 1)
-        group[f'Cumulative_{selected_stat}'] = group[selected_stat].cumsum()
-        cumulative_data.append(group)
-    
-    cumulative_df = pd.concat(cumulative_data)
-    
-    fig_cumulative = px.line(cumulative_df, x='career_year', y=f'Cumulative_{selected_stat}', 
-                             color='IDfg',
-                             title=f"Cumulative {selected_stat} Over Career Years",
-                             labels={'career_year': 'Career Year'})
-    
-    for trace in fig_cumulative.data:
+        
+        if selected_stat in rate_stats:
+            if player_type == "Pitcher":
+                weight = 'IP'
+            else:  # Hitter
+                weight = 'PA' if 'PA' in group.columns else 'G'
+            
+            group[f'Career_Avg_{selected_stat}'] = (group[selected_stat] * group[weight]).cumsum() / group[weight].cumsum()
+            title = f"Weighted Career Average {selected_stat} Over Time"
+            y_axis = f'Career_Avg_{selected_stat}'
+        else:
+            group[f'Cumulative_{selected_stat}'] = group[selected_stat].cumsum()
+            title = f"Cumulative {selected_stat} Over Career Years"
+            y_axis = f'Cumulative_{selected_stat}'
+        
+        career_data.append(group)
+
+    career_df = pd.concat(career_data)
+
+    # Create the figure with custom hover template
+    fig_career = px.line(career_df, x='career_year', y=y_axis, 
+                         color='IDfg',
+                         title=title,
+                         labels={'career_year': 'Career Year'},
+                         hover_data={'IDfg': False, 'Name': True, y_axis: ':.2f'})
+
+    # Update hover template to show player name
+    fig_career.update_traces(hovertemplate='Name: %{customdata[0]}<br>Career Year: %{x}<br>' + f'{y_axis}: ' + '%{y:.2f}<extra></extra>')
+
+    # Customize the lines for each player
+    for trace in fig_career.data:
         idfg = int(trace.name)
-        player_subset = cumulative_df[cumulative_df['IDfg'] == idfg]
+        player_subset = career_df[career_df['IDfg'] == idfg]
         if not player_subset.empty:
             player_info = player_subset.iloc[-1]
             trace.name = player_info['Name']
             trace.line.color = get_team_color(player_info['Team'], team_colors)
+            # Add custom data for hover
+            trace.customdata = player_subset[['Name']]
         else:
             trace.name = f"Unknown Player (ID: {idfg})"
             trace.line.color = 'grey'
-    
-    st.plotly_chart(fig_cumulative)
-def create_hover_text(row, stat, hover_data):
-    hover_text = f"{row['year']}<br>{row['Team']}<br>{row['Name']}, {row[stat]}<br>"
-    for key in hover_data:
-        if key not in ['year', 'Team', 'Name', stat]:
-            hover_text += f"{key}: {row[key]}<br>"
-    return hover_text.rstrip('<br>')
+            trace.customdata = np.full((len(trace.x), 1), f"Unknown Player (ID: {idfg})")
 
-def plot_league_wide_stat(df, stat, year_range, stat_min_max, hover_data, data_type):
-    df = df[(df['year'] >= year_range[0]) & (df['year'] <= year_range[1])]
-    
-    if stat_min_max == 'min':
-        selected_stat = df.loc[df.groupby('year')[stat].idxmin()]
+    st.plotly_chart(fig_career)
+
+    if selected_stat in rate_stats:
+        st.info(f"{selected_stat} is a rate stat, so the second graph shows the career average at each point in time.")
     else:
-        selected_stat = df.loc[df.groupby('year')[stat].idxmax()]
-    
-    team_colors = load_team_colors()
-    selected_stat['color'] = selected_stat['Team'].map(lambda x: get_team_color(x, team_colors))
-    selected_stat['hover_text'] = selected_stat.apply(lambda row: create_hover_text(row, stat, hover_data), axis=1)
+        st.info(f"{selected_stat} is a counting stat, so the second graph shows cumulative values over time.")
 
-    fig = go.Figure()
-    
-    for team in sorted(selected_stat['Team'].unique()):
-        team_data = selected_stat[selected_stat['Team'] == team]
-        fig.add_trace(go.Bar(
-            x=team_data['year'],
-            y=team_data[stat],
-            name=team,
-            marker_color=get_team_color(team, team_colors),
-            hoverinfo='text',
-            hovertext=team_data['hover_text']
-        ))
+def process_data_for_race(df, stat, start_year, end_year, player_type, race_type, min_games=None):
+    # Check if the stat exists in the dataframe
+    if stat not in df.columns:
+        raise ValueError(f"The stat '{stat}' is not available in the dataset.")
 
-    fig.update_layout(
-        title=f"{stat_min_max.capitalize()} {stat} per Year",
-        xaxis_title="Year",
-        yaxis_title=stat,
-        hovermode="closest",
-        hoverlabel=dict(
-            bgcolor="white",
-            font_size=14,
-            font_color="black"
-        ),
-        xaxis=dict(type='category', categoryorder='category ascending'),
-        legend_title_text='Team',
-        legend=dict(
-            yanchor="top",
-            y=0.99,
-            xanchor="left",
-            x=1.02
-        )
-    )
+    # Find the first and last years where the stat is available
+    valid_years = df[df[stat].notnull()]['year']
+    if valid_years.empty:
+        raise ValueError(f"No valid data available for the stat '{stat}'.")
 
+    first_year_available = valid_years.min()
+    last_year_available = valid_years.max()
 
-    st.plotly_chart(fig)
+    # Adjust the year range if necessary
+    adjusted_start_year = max(start_year, first_year_available)
+    adjusted_end_year = min(end_year, last_year_available)
 
-def league_wide_stats_view(data_type):
-    st.subheader("League-wide Stat Histogram")
-    
-    data_df = load_and_filter_data(data_type)  # Load all data
-    
-    min_year, max_year = int(data_df['year'].min()), int(data_df['year'].max())
-    year_range = st.slider("Select Year Range", min_year, max_year, (min_year, max_year))
-    
-    available_stats = list(data_df.select_dtypes(include=[int, float]).columns)
-    stat = st.selectbox("Select the stat you want to plot", available_stats)
-    
-    stat_min_max = st.radio("Plot max or min of the stat?", ('max', 'min'))
-    
-    if data_type == "Pitcher":
-        hover_data = ['G', 'IP', 'ERA', 'WHIP', 'FIP', 'WAR']
-    else:  # hitter
-        hover_data = ['AVG', 'OBP', 'OPS', 'HR', 'wRC+', 'SB', 'WAR']
-    
-    if st.button("Generate Histogram"):
-        plot_league_wide_stat(data_df, stat, year_range, stat_min_max, hover_data, data_type)
+    if adjusted_start_year > adjusted_end_year:
+        raise ValueError(f"No data available for '{stat}' in the selected year range.")
 
-def process_data_for_race(df, stat, start_year, end_year):
-    df = df[(df['year'] >= start_year) & (df['year'] <= end_year)]
+    # Filter the dataframe for the adjusted year range
+    df = df[(df['year'] >= adjusted_start_year) & (df['year'] <= adjusted_end_year)]
 
-    if df[stat].isnull().all():
-        raise ValueError(f"No {stat} data available for the selected range.")
+    # Define rate stats for hitters and pitchers
+    hitter_rate_stats = ['AVG', 'OBP', 'SLG', 'OPS', 'BB%', 'K%', 'ISO', 'BABIP', 'wRC+', 'wOBA', 'WAR', 'Off', 'Def', 'BsR', 'RAR', 'WAR/162', 'Off/162', 'Def/162', 'WPA', '-WPA', '+WPA', 'RE24', 'REW', 'pLI', 'phLI', 'WPA/LI', 'Clutch', 'FB%', 'GB%', 'LD%', 'Pull%', 'Cent%', 'Oppo%', 'Soft%', 'Med%', 'Hard%', 'IFFB%', 'IFH%', 'BUH%', 'O-Swing%', 'Z-Swing%', 'Swing%', 'O-Contact%', 'Z-Contact%', 'Contact%', 'Zone%', 'F-Strike%', 'SwStr%']
+    pitcher_rate_stats = ['ERA', 'WHIP', 'K/9', 'BB/9', 'HR/9', 'K%', 'BB%', 'K-BB%', 'AVG', 'BABIP', 'LOB%', 'FIP', 'xFIP', 'WAR', 'ERA-', 'FIP-', 'xFIP-', 'WPA', '-WPA', '+WPA', 'RE24', 'REW', 'pLI', 'inLI', 'gmLI', 'WPA/LI', 'Clutch', 'FB%', 'GB%', 'LD%', 'IFFB%', 'HR/FB', 'IFH%', 'BUH%', 'O-Swing%', 'Z-Swing%', 'Swing%', 'O-Contact%', 'Z-Contact%', 'Contact%', 'Zone%', 'F-Strike%', 'SwStr%']
     
-    player_stats = df.groupby(['IDfg', 'year'])[stat].sum().unstack(fill_value=0)
-    player_stats_cumsum = player_stats.cumsum(axis=1)
+    rate_stats = hitter_rate_stats if player_type == "Hitter" else pitcher_rate_stats
+    
+    # Apply minimum games filter if specified
+    if min_games is not None:
+        # Calculate average games per season for each player
+        avg_games = df.groupby('IDfg')['G'].mean()
+        qualified_players = avg_games[avg_games >= min_games].index
+        df = df[df['IDfg'].isin(qualified_players)]
+
+    # Stats to display with 3 decimal points
+    three_decimal_stats = ['AVG', 'OBP', 'SLG', 'OPS', 'ISO', 'BABIP', 'wOBA']
+    
+    if stat in rate_stats:
+        # For rate stats, use weighted average
+        if player_type == "Pitcher":
+            weight = 'IP'
+        else:  # Hitter
+            weight = 'PA' if 'PA' in df.columns else 'G'
+        
+        def safe_average(x):
+            if x[weight].sum() == 0:
+                return 0
+            return np.average(x[stat], weights=x[weight])
+        
+        player_stats = df.groupby(['IDfg', 'year']).apply(safe_average).unstack(fill_value=0)
+        weight_sums = df.groupby(['IDfg', 'year'])[weight].sum().unstack(fill_value=0)
+        player_stats_cumsum = (player_stats * weight_sums).cumsum(axis=1) / weight_sums.cumsum(axis=1).replace(0, np.nan)
+    else:
+        # For counting stats, use sum and cumulative sum
+        player_stats = df.groupby(['IDfg', 'year'])[stat].sum().unstack(fill_value=0)
+        player_stats_cumsum = player_stats.cumsum(axis=1)
     
     id_to_name = df.sort_values('year').groupby('IDfg').last()[['Name', 'Team']]
     
+    def format_value(value, stat):
+        if stat in ['AVG', 'OBP', 'SLG', 'OPS', 'ISO', 'BABIP', 'wOBA']:
+            return f"{value:.3f}"
+        elif stat in ['ERA', 'FIP', 'xFIP', 'WHIP']:
+            return f"{value:.2f}"
+        elif stat in ['HR', 'R', 'RBI', 'SB', 'BB', '1B', '2B', '3B' 'SO', 'H', 'G', 'GS', 'W', 'L', 'SV']:
+            return f"{int(value)}"
+        else:
+            return f"{value:.1f}"
+
     data_for_animation = []
-    for year in range(start_year, end_year + 1):
-        year_data = player_stats_cumsum[year].sort_values(ascending=False).head(10)
+    available_years = sorted(player_stats_cumsum.columns)
+    for year in available_years:
+        if year < adjusted_start_year or year > adjusted_end_year:
+            continue
+        if race_type == 'max':
+            year_data = player_stats_cumsum[year].sort_values(ascending=False).head(10)
+        else:  # min
+            year_data = player_stats_cumsum[year].sort_values(ascending=True).head(10)
         for rank, (idfg, value) in enumerate(year_data.items(), 1):
+            if pd.isna(value):
+                continue
             name = id_to_name.loc[idfg, 'Name']
             team = id_to_name.loc[idfg, 'Team']
+            
+            formatted_value = format_value(value, stat)
+            
             data_for_animation.append({
                 'Year': year,
                 'IDfg': idfg,
                 'Name': name,
-                'Value': value,
+                'Value': formatted_value,
+                'Value_float': value,  # Keep the original float value for sorting
                 'Rank': rank,
                 'Team': team
             })
     
-    return pd.DataFrame(data_for_animation)
+    return pd.DataFrame(data_for_animation), adjusted_start_year, adjusted_end_year
 
-def create_race_plot(df, stat, start_year, end_year):
+def race_chart_view():
+    st.subheader("Career Stat Race Chart")
+    
+    player_type = st.radio("Select player type:", ("Hitter", "Pitcher"))
+    data_df = load_and_filter_data(player_type)  # Load all data
+    
+    min_year, max_year = int(data_df['year'].min()), int(data_df['year'].max())
+    start_year = st.number_input("Start Year", min_value=min_year, max_value=max_year, value=min_year)
+    end_year = st.number_input("End Year", min_value=min_year, max_value=max_year, value=max_year)
+    
+    if start_year >= end_year:
+        st.error("Start year must be less than end year.")
+        return
+    
+    available_stats = list(data_df.select_dtypes(include=[int, float]).columns)
+    stat = st.selectbox("Select the stat for the race chart", available_stats)
+    
+    race_type = st.radio("Select race type:", ("max", "min"))
+    
+    use_min_games = st.checkbox("Set minimum number of games played per season?")
+    min_games = None
+    if use_min_games:
+        min_games = st.number_input("Minimum average games per season:", min_value=1, value=50)
+    
+    if st.button("Generate Race Chart"):
+        try:
+            processed_data, adj_start_year, adj_end_year = process_data_for_race(
+                data_df, stat, start_year, end_year, player_type, race_type, min_games
+            )
+            if processed_data.empty:
+                st.warning(f"No data available for {stat} in the selected year range.")
+            else:
+                if adj_start_year != start_year or adj_end_year != end_year:
+                    st.warning(f"Adjusted year range to {adj_start_year}-{adj_end_year} due to data availability.")
+                
+                # Convert 'Value' to float for calculations
+                processed_data['Value_float'] = processed_data['Value'].astype(float)
+                
+                # Sort the dataframe based on race_type
+                processed_data = processed_data.sort_values(['Year', 'Value_float'], 
+                                                           ascending=[True, race_type == 'min'])
+                
+                # Ensure we have top 10 for each year
+                processed_data = processed_data.groupby('Year').apply(lambda x: x.nlargest(10, 'Value_float') if race_type == 'max' else x.nsmallest(10, 'Value_float')).reset_index(drop=True)
+                
+                create_race_plot(processed_data, stat, adj_start_year, adj_end_year, race_type)
+        except ValueError as e:
+            st.error(str(e))
+
+def create_race_plot(df, stat, start_year, end_year, race_type):
     team_colors = load_team_colors()
     color_map = {idfg: get_team_color(df[df['IDfg'] == idfg]['Team'].iloc[0], team_colors) for idfg in df['IDfg'].unique()}
+
+    # Determine the range for the x-axis
+    x_min = df['Value_float'].min()
+    x_max = df['Value_float'].max()
+    x_range = [x_min - (x_max - x_min) * 0.1, x_max + (x_max - x_min) * 0.1]
 
     fig = go.Figure(
         data=[
             go.Bar(
-                x=df[df['Year'] == start_year]['Value'],
+                x=df[df['Year'] == start_year]['Value_float'],
                 y=df[df['Year'] == start_year]['Name'],
                 orientation='h',
                 text=df[df['Year'] == start_year]['Value'],
-                texttemplate='%{text:.0f}',
+                texttemplate='%{text}',
                 textposition='outside',
                 marker=dict(color=[color_map[idfg] for idfg in df[df['Year'] == start_year]['IDfg']])
             )
         ],
         layout=go.Layout(
             title=dict(
-                text=f"Top 10 {stat} Totals Over Time",
+                text=f"Top 10 {stat} {'Maxima' if race_type == 'max' else 'Minima'} Over Time",
                 font=dict(size=24)
             ),
-            xaxis=dict(range=[0, df['Value'].max() * 1.1], autorange=False, title=stat),
+            xaxis=dict(range=x_range, autorange=False, title=stat),
             yaxis=dict(
                 range=[-0.5, 9.5],
                 autorange=False,
@@ -299,13 +446,16 @@ def create_race_plot(df, stat, start_year, end_year):
 
     frames = [go.Frame(
         data=[go.Bar(
-            x=df[df['Year'] == year]['Value'],
+            x=df[df['Year'] == year]['Value_float'],
             y=df[df['Year'] == year]['Name'],
             orientation='h',
             text=df[df['Year'] == year]['Value'],
+            texttemplate='%{text}',
+            textposition='outside',
             marker=dict(color=[color_map[idfg] for idfg in df[df['Year'] == year]['IDfg']])
         )],
         layout=go.Layout(
+            xaxis=dict(range=x_range),
             yaxis=dict(
                 categoryorder='array',
                 categoryarray=df[df['Year'] == year]['Name'][::-1],
@@ -313,7 +463,7 @@ def create_race_plot(df, stat, start_year, end_year):
             )
         ),
         name=str(year)
-    ) for year in range(start_year, end_year + 1)]
+    ) for year in sorted(df['Year'].unique())]
 
     fig.frames = frames
 
@@ -360,35 +510,183 @@ def create_race_plot(df, stat, start_year, end_year):
                     "label": str(year),
                     "method": "animate"
                 }
-                for year in range(start_year, end_year + 1)
+                for year in sorted(df['Year'].unique())
             ]
         }]
     )
 
     st.plotly_chart(fig)
 
-def race_chart_view(data_type):
-    st.subheader("Career Stat Race Chart")
+def plot_league_wide_stat(df, stat, year_range, stat_min_max, hover_data, data_type):
+    if stat not in df.columns:
+        st.error(f"The stat '{stat}' is not available in the dataset.")
+        return
+
+    valid_years = df[df[stat].notnull()]['year']
+    if valid_years.empty:
+        st.error(f"No valid data available for the stat '{stat}'.")
+        return
+
+    first_year_available = valid_years.min()
+    last_year_available = valid_years.max()
+
+    adjusted_start_year = max(year_range[0], first_year_available)
+    adjusted_end_year = min(year_range[1], last_year_available)
+
+    if adjusted_start_year > adjusted_end_year:
+        st.warning(f"No data available for '{stat}' in the selected year range. Adjusting to available years.")
+        adjusted_start_year = first_year_available
+        adjusted_end_year = last_year_available
+
+    df_filtered = df[(df['year'] >= adjusted_start_year) & (df['year'] <= adjusted_end_year)]
+
+    if stat_min_max == 'min':
+        idx = df_filtered.groupby('year')[stat].idxmin()
+    else:
+        idx = df_filtered.groupby('year')[stat].idxmax()
+
+    grouped_stat = df_filtered.loc[idx].reset_index(drop=True)
+
+    team_colors = load_team_colors()
+
+    def format_value(value, key):
+        if pd.isna(value):
+            return "N/A"
+        if key in ['AVG', 'OBP', 'SLG', 'OPS', 'ISO', 'BABIP', 'wOBA']:
+            return f"{value:.3f}"
+        elif key in ['ERA', 'FIP', 'xFIP', 'WHIP']:
+            return f"{value:.2f}"
+        elif key in ['HR', 'R', 'RBI', 'SB', 'BB', '1B', '2B', '3B', 'SO', 'H', 'G', 'GS', 'W', 'L', 'SV']:
+            return f"{int(value)}"
+        else:
+            return f"{value:.1f}"
+
+    hover_text = grouped_stat.apply(lambda row: (
+        f"Name: {row['Name']}<br>"
+        f"Year: {row['year']}<br>"
+        f"Team: {row['Team']}<br>"
+        f"{stat}: {format_value(row[stat], stat)}<br>" +
+        ''.join(f"{key}: {format_value(row[key], key)}<br>" for key in hover_data if key in row.index and key != stat)
+    ), axis=1)
+
+    fig = go.Figure()
+
+    for team in sorted(grouped_stat['Team'].unique()):
+        team_data = grouped_stat[grouped_stat['Team'] == team]
+        fig.add_trace(go.Bar(
+            x=team_data['year'],
+            y=team_data[stat],
+            name=team,
+            marker_color=get_team_color(team, team_colors),
+            hoverinfo='text',
+            hovertext=hover_text[team_data.index],
+            text=team_data[stat].apply(lambda x: format_value(x, stat)),
+            textposition='auto'
+        ))
+
+    is_percentage = any(stat.endswith(s) for s in ['%', 'Percentage', 'Rate'])
+
+    fig.update_layout(
+        title=f"{stat_min_max.capitalize()} {stat} per Year for {data_type}s (Available: {first_year_available}-{last_year_available})",
+        xaxis_title="Year",
+        yaxis_title=stat,
+        hovermode="closest",
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=14,
+            font_color="black"
+        ),
+        xaxis=dict(type='category', categoryorder='category ascending'),
+        legend_title_text='Team',
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="left",
+            x=1.02
+        ),
+        yaxis=dict(tickformat='.1%' if is_percentage else None)
+    )
+
+    if adjusted_start_year != year_range[0] or adjusted_end_year != year_range[1]:
+        st.info(f"Showing data for years {adjusted_start_year}-{adjusted_end_year} due to data availability.")
+
+    st.plotly_chart(fig)
+
+def create_hover_text(row, stat, hover_data, df):
+    year = row['year']
+    team = row['Team']
+    stat_value = row[stat]
     
-    data_df = load_and_filter_data(data_type)  # Load all data
+    # Find the player with the min/max stat value for this year and team
+    player_data = df[(df['year'] == year) & (df['Team'] == team) & (df[stat] == stat_value)].iloc[0]
+    
+    hover_text = f"Name: {player_data['Name']}<br>"
+    hover_text += f"Year: {year}<br>"
+    hover_text += f"Team: {team}<br>"
+    hover_text += f"{stat}: {format_value(stat_value, stat)}<br>"
+    
+    for key in hover_data:
+        if key in player_data and key != stat:
+            value = player_data[key]
+            hover_text += f"{key}: {format_value(value, key)}<br>"
+    
+    return hover_text.rstrip('<br>')
+
+def league_wide_stats_view():
+    st.subheader("League-wide Stat Histogram")
+    
+    player_type = st.radio("Would you like to see stats for hitters or pitchers?", ("Hitters", "Pitchers"))
+    data_type = "Hitter" if player_type == "Hitters" else "Pitcher"
+    
+    data_df = load_and_filter_data(data_type)
     
     min_year, max_year = int(data_df['year'].min()), int(data_df['year'].max())
-    start_year = st.number_input("Start Year", min_value=min_year, max_value=max_year, value=min_year)
-    end_year = st.number_input("End Year", min_value=min_year, max_value=max_year, value=max_year)
+    year_range = st.slider("Select Year Range", min_year, max_year, (min_year, max_year))
     
-    if start_year >= end_year:
-        st.error("Start year must be less than end year.")
-        return
+    # Add minimum filter options
+    use_min_filter = st.checkbox("Set minimum playing time filter?")
+    min_games = min_pa = min_ip = None
+    if use_min_filter:
+        col1, col2 = st.columns(2)
+        with col1:
+            min_games = st.number_input("Minimum games per season:", min_value=1, value=20)
+        with col2:
+            if data_type == "Hitter":
+                min_pa = st.number_input("Minimum PA per season:", min_value=1, value=200)
+            else:  # Pitcher
+                min_ip = st.number_input("Minimum IP per season:", min_value=1, value=50)
     
-    available_stats = list(data_df.select_dtypes(include=[int, float]).columns)
-    stat = st.selectbox("Select the stat for the race chart", available_stats)
+    if data_type == "Pitcher":
+        default_stat = 'ERA'
+        available_stats = ['ERA', 'WHIP', 'K/9', 'BB/9', 'HR/9', 'FIP', 'WAR', 'W', 'L', 'SV', 'G', 'GS', 'IP', 'H', 'R', 'ER', 'HR', 'SO', 'AVG', 'BABIP', 'LOB%', 'GB%', 'HR/FB', 'WAR']
+    else:  # Hitter
+        default_stat = 'HR'
+        available_stats = ['AVG', 'OBP', 'SLG', 'OPS', 'wOBA', 'wRC+', 'WAR', 'HR', 'R', 'RBI', 'SB', 'BB%', 'K%', 'ISO', 'BABIP', 'GB%', 'FB%', 'Hard%']
     
-    if st.button("Generate Race Chart"):
-        try:
-            processed_data = process_data_for_race(data_df, stat, start_year, end_year)
-            create_race_plot(processed_data, stat, start_year, end_year)
-        except ValueError as e:
-            st.error(str(e))
+    available_stats = [stat for stat in available_stats if stat in data_df.columns]
+    
+    default_index = available_stats.index(default_stat) if default_stat in available_stats else 0
+    stat = st.selectbox("Select the stat you want to plot", available_stats, index=default_index)
+    
+    stat_min_max = st.radio("Plot max or min of the stat?", ('max', 'min'))
+    
+    if data_type == "Pitcher":
+        hover_data = ['W', 'L', 'ERA', 'WHIP', 'K/9', 'BB/9', 'FIP', 'WAR']
+    else:  # Hitter
+        hover_data = ['AVG', 'OBP', 'SLG', 'OPS', 'HR', 'RBI', 'SB', 'WAR']
+    
+    hover_data = [stat for stat in hover_data if stat in data_df.columns]
+    
+    if st.button("Generate Histogram"):
+        # Apply minimum filters if specified
+        if use_min_filter:
+            # Filter by games and PA/IP for each season
+            data_df = data_df.groupby(['IDfg', 'year']).filter(
+                lambda x: x['G'].iloc[0] >= min_games and 
+                (x['PA'].iloc[0] >= min_pa if data_type == "Hitter" else x['IP'].iloc[0] >= min_ip)
+            )
+        
+        plot_league_wide_stat(data_df, stat, year_range, stat_min_max, hover_data, data_type)
 
 def calculate_similarity_scores(player_data, target_player, stats_to_compare):
     # Filter players of the same type (hitter or pitcher)
@@ -495,7 +793,7 @@ def player_similarity_view(data_type):
 def main():
     st.title("Brock's Baseball Stats Explorer")
     
-    st.header("It's Time For Dodgers Baseball! (or your team who sucks)")
+    st.header("It's Time For Dodger Baseball! (or your team who sucks)")
     
     st.sidebar.title("Navigation")
     app_mode = st.sidebar.radio("Choose the mode",
@@ -506,18 +804,16 @@ def main():
         st.session_state.player_data = None
         st.session_state.current_mode = app_mode
     
-    data_type = st.sidebar.radio("Select player type:", ("Hitter", "Pitcher"))
-    
     if app_mode == "Individual Player":
-        individual_player_view(data_type)
+        individual_player_view()
     elif app_mode == "Compare Players":
-        compare_players_view(data_type)
+        compare_players_view()
     elif app_mode == "League-wide Stats":
-        league_wide_stats_view(data_type)
+        league_wide_stats_view()
     elif app_mode == "Career Stat Race":
-        race_chart_view(data_type)
+        race_chart_view()
     else:  # Player Similarity
-        player_similarity_view(data_type)
+        player_similarity_view()
 
 if __name__ == "__main__":
     main()
