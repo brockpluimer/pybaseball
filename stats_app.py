@@ -47,84 +47,6 @@ def load_and_filter_data(data_type, player_names_or_ids=None):
 def get_team_color(team, team_colors):
     return team_colors.get(str(team).upper(), 'grey')
 
-def individual_player_view():
-    st.subheader("Individual Player Statistics")
-
-    # Ask user to choose between hitters and pitchers
-    player_type = st.radio("Would you like to see stats for a hitter or a pitcher?", ("Hitter", "Pitcher"))
-
-    player_input = st.text_input("Enter player name or FanGraphs ID:", "Shohei Ohtani")
-    
-    if st.button("Load Player Data") or ('player_data' in st.session_state and st.session_state.player_data is not None):
-        if 'player_data' not in st.session_state or st.session_state.player_data is None:
-            # Load data for both hitter and pitcher
-            hitter_data = load_and_filter_data("Hitter", [player_input])
-            pitcher_data = load_and_filter_data("Pitcher", [player_input])
-            
-            # Combine the data
-            st.session_state.player_data = pd.concat([hitter_data, pitcher_data])
-        
-        if st.session_state.player_data.empty:
-            st.error(f"No data found for {player_input}")
-        else:
-            st.success(f"Data loaded for {player_input}")
-            
-            # Filter data based on selected player type
-            filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] == player_type.lower()]
-            
-            if filtered_data.empty:
-                st.warning(f"No {player_type.lower()} data found for {player_input}. They might be a {['pitcher', 'hitter'][player_type == 'Pitcher']}.")
-                if st.button(f"Show {['pitcher', 'hitter'][player_type == 'Pitcher']} data instead"):
-                    filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] != player_type.lower()]
-            
-            if not filtered_data.empty:
-                display_player_stats(filtered_data, player_type)
-            else:
-                st.error(f"No data available for {player_input}")
-
-
-def compare_players_view():
-    st.subheader("Compare Players")
-
-    # Ask user to choose between hitters and pitchers
-    player_type = st.radio("Would you like to compare hitters or pitchers?", ("Hitters", "Pitchers"))
-    data_type = "Hitter" if player_type == "Hitters" else "Pitcher"
-
-    st.subheader("Enter up to 10 player names or FanGraphs IDs (one per line):")
-    player_inputs = st.text_area("Player Names or IDs", "Shohei Ohtani\nMike Trout").split('\n')
-    player_inputs = [input.strip() for input in player_inputs if input.strip()][:10]  # Limit to 10 players
-
-    # Reset session state if coming from individual view or if it's None
-    if 'player_data' in st.session_state:
-        if st.session_state.player_data is None or (isinstance(st.session_state.player_data, pd.DataFrame) and len(st.session_state.player_data['IDfg'].unique()) == 1):
-            st.session_state.player_data = None
-
-    if st.button("Load Players Data") or ('player_data' in st.session_state and st.session_state.player_data is not None):
-        if 'player_data' not in st.session_state or st.session_state.player_data is None:
-            # Load data for both hitters and pitchers
-            hitter_data = load_and_filter_data("Hitter", player_inputs)
-            pitcher_data = load_and_filter_data("Pitcher", player_inputs)
-            
-            # Combine the data
-            st.session_state.player_data = pd.concat([hitter_data, pitcher_data])
-
-        if st.session_state.player_data.empty:
-            st.error("No data found for the specified players")
-        else:
-            # Filter data based on selected player type
-            filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] == data_type.lower()]
-            
-            if filtered_data.empty:
-                st.warning(f"No {data_type.lower()} data found for the specified players. They might be {['pitchers', 'hitters'][data_type == 'Pitcher']}.")
-                if st.button(f"Show {['pitcher', 'hitter'][data_type == 'Pitcher']} data instead"):
-                    filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] != data_type.lower()]
-            
-            if not filtered_data.empty:
-                st.success(f"Data loaded for {len(filtered_data['IDfg'].unique())} player(s)")
-                display_player_stats(filtered_data, data_type)
-            else:
-                st.error("No data available for the specified players")
-
 def display_player_stats(player_data, player_type):
     team_colors = load_team_colors()
     id_to_name = player_data.groupby('IDfg')['Name'].first().to_dict()
@@ -259,6 +181,83 @@ def display_player_stats(player_data, player_type):
     else:
         st.info(f"{selected_stat} is a counting stat, so the second graph shows cumulative values over time.")
 
+def individual_player_view():
+    st.subheader("Individual Player Statistics")
+
+    # Ask user to choose between hitters and pitchers
+    player_type = st.radio("Would you like to see stats for a hitter or a pitcher?", ("Hitter", "Pitcher"))
+
+    player_input = st.text_input("Enter player name or FanGraphs ID:", "Shohei Ohtani")
+    
+    if st.button("Load Player Data") or ('player_data' in st.session_state and st.session_state.player_data is not None):
+        if 'player_data' not in st.session_state or st.session_state.player_data is None:
+            # Load data for both hitter and pitcher
+            hitter_data = load_and_filter_data("Hitter", [player_input])
+            pitcher_data = load_and_filter_data("Pitcher", [player_input])
+            
+            # Combine the data
+            st.session_state.player_data = pd.concat([hitter_data, pitcher_data])
+        
+        if st.session_state.player_data.empty:
+            st.error(f"No data found for {player_input}")
+        else:
+            st.success(f"Data loaded for {player_input}")
+            
+            # Filter data based on selected player type
+            filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] == player_type.lower()]
+            
+            if filtered_data.empty:
+                st.warning(f"No {player_type.lower()} data found for {player_input}. They might be a {['pitcher', 'hitter'][player_type == 'Pitcher']}.")
+                if st.button(f"Show {['pitcher', 'hitter'][player_type == 'Pitcher']} data instead"):
+                    filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] != player_type.lower()]
+            
+            if not filtered_data.empty:
+                display_player_stats(filtered_data, player_type)
+            else:
+                st.error(f"No data available for {player_input}")
+
+def compare_players_view():
+    st.subheader("Compare Players")
+
+    # Ask user to choose between hitters and pitchers
+    player_type = st.radio("Would you like to compare hitters or pitchers?", ("Hitters", "Pitchers"))
+    data_type = "Hitter" if player_type == "Hitters" else "Pitcher"
+
+    st.subheader("Enter up to 10 player names or FanGraphs IDs (one per line):")
+    player_inputs = st.text_area("Player Names or IDs", "Shohei Ohtani\nMike Trout").split('\n')
+    player_inputs = [input.strip() for input in player_inputs if input.strip()][:10]  # Limit to 10 players
+
+    # Reset session state if coming from individual view or if it's None
+    if 'player_data' in st.session_state:
+        if st.session_state.player_data is None or (isinstance(st.session_state.player_data, pd.DataFrame) and len(st.session_state.player_data['IDfg'].unique()) == 1):
+            st.session_state.player_data = None
+
+    if st.button("Load Players Data") or ('player_data' in st.session_state and st.session_state.player_data is not None):
+        if 'player_data' not in st.session_state or st.session_state.player_data is None:
+            # Load data for both hitters and pitchers
+            hitter_data = load_and_filter_data("Hitter", player_inputs)
+            pitcher_data = load_and_filter_data("Pitcher", player_inputs)
+            
+            # Combine the data
+            st.session_state.player_data = pd.concat([hitter_data, pitcher_data])
+
+        if st.session_state.player_data.empty:
+            st.error("No data found for the specified players")
+        else:
+            # Filter data based on selected player type
+            filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] == data_type.lower()]
+            
+            if filtered_data.empty:
+                st.warning(f"No {data_type.lower()} data found for the specified players. They might be {['pitchers', 'hitters'][data_type == 'Pitcher']}.")
+                if st.button(f"Show {['pitcher', 'hitter'][data_type == 'Pitcher']} data instead"):
+                    filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] != data_type.lower()]
+            
+            if not filtered_data.empty:
+                st.success(f"Data loaded for {len(filtered_data['IDfg'].unique())} player(s)")
+                display_player_stats(filtered_data, data_type)
+            else:
+                st.error("No data available for the specified players")
+
 def process_data_for_race(df, stat, start_year, end_year, player_type, race_type, min_games=None):
     # Check if the stat exists in the dataframe
     if stat not in df.columns:
@@ -358,55 +357,6 @@ def process_data_for_race(df, stat, start_year, end_year, player_type, race_type
             })
     
     return pd.DataFrame(data_for_animation), adjusted_start_year, adjusted_end_year
-
-def race_chart_view():
-    st.subheader("Career Stat Race Chart")
-    
-    player_type = st.radio("Select player type:", ("Hitter", "Pitcher"))
-    data_df = load_and_filter_data(player_type)  # Load all data
-    
-    min_year, max_year = int(data_df['year'].min()), int(data_df['year'].max())
-    start_year = st.number_input("Start Year", min_value=min_year, max_value=max_year, value=min_year)
-    end_year = st.number_input("End Year", min_value=min_year, max_value=max_year, value=max_year)
-    
-    if start_year >= end_year:
-        st.error("Start year must be less than end year.")
-        return
-    
-    available_stats = list(data_df.select_dtypes(include=[int, float]).columns)
-    stat = st.selectbox("Select the stat for the race chart", available_stats)
-    
-    race_type = st.radio("Select race type:", ("max", "min"))
-    
-    use_min_games = st.checkbox("Set minimum number of games played per season?")
-    min_games = None
-    if use_min_games:
-        min_games = st.number_input("Minimum average games per season:", min_value=1, value=50)
-    
-    if st.button("Generate Race Chart"):
-        try:
-            processed_data, adj_start_year, adj_end_year = process_data_for_race(
-                data_df, stat, start_year, end_year, player_type, race_type, min_games
-            )
-            if processed_data.empty:
-                st.warning(f"No data available for {stat} in the selected year range.")
-            else:
-                if adj_start_year != start_year or adj_end_year != end_year:
-                    st.warning(f"Adjusted year range to {adj_start_year}-{adj_end_year} due to data availability.")
-                
-                # Convert 'Value' to float for calculations
-                processed_data['Value_float'] = processed_data['Value'].astype(float)
-                
-                # Sort the dataframe based on race_type
-                processed_data = processed_data.sort_values(['Year', 'Value_float'], 
-                                                           ascending=[True, race_type == 'min'])
-                
-                # Ensure we have top 10 for each year
-                processed_data = processed_data.groupby('Year').apply(lambda x: x.nlargest(10, 'Value_float') if race_type == 'max' else x.nsmallest(10, 'Value_float')).reset_index(drop=True)
-                
-                create_race_plot(processed_data, stat, adj_start_year, adj_end_year, race_type)
-        except ValueError as e:
-            st.error(str(e))
 
 def create_race_plot(df, stat, start_year, end_year, race_type):
     team_colors = load_team_colors()
@@ -518,6 +468,80 @@ def create_race_plot(df, stat, start_year, end_year, race_type):
     )
 
     st.plotly_chart(fig)
+
+def race_chart_view():
+    st.subheader("Career Stat Race")
+
+    st.markdown("""
+    This tool creates an animated "race" chart showing how players' career statistics have evolved over time. Here's how it works:
+
+    1. Choose between hitter or pitcher statistics.
+    2. Select a start and end year for the analysis.
+    3. Pick a specific statistic to track.
+    4. Decide whether to race for the maximum or minimum value of the stat.
+    5. Optionally, set a minimum number of games played per season to filter out players with limited playing time.
+    6. The tool will generate an animated bar chart race showing how players' career totals or averages for the chosen stat have changed year by year.
+
+    Key features:
+    - The race can show either cumulative totals (for counting stats) or career averages (for rate stats).
+    - You can choose to race for the highest or lowest values, depending on the nature of the statistic.
+    - The minimum games filter helps focus on players with substantial playing time.
+    - The animation provides a dynamic view of how player rankings have shifted over time.
+
+    This visualization is excellent for:
+    - Tracking career milestone races (e.g., all-time home run leaders)
+    - Comparing career trajectories of different players
+    - Identifying periods of dominance for particular players
+    - Visualizing how quickly records are approached or broken
+
+    Remember that this tool uses career totals or averages, so players who had shorter careers but exceptional peak years might not rank as highly as those with longer careers.
+    """)
+    
+    player_type = st.radio("Select player type:", ("Hitter", "Pitcher"))
+    data_df = load_and_filter_data(player_type)  # Load all data
+    
+    min_year, max_year = int(data_df['year'].min()), int(data_df['year'].max())
+    start_year = st.number_input("Start Year", min_value=min_year, max_value=max_year, value=min_year)
+    end_year = st.number_input("End Year", min_value=min_year, max_value=max_year, value=max_year)
+    
+    if start_year >= end_year:
+        st.error("Start year must be less than end year.")
+        return
+    
+    available_stats = list(data_df.select_dtypes(include=[int, float]).columns)
+    stat = st.selectbox("Select the stat for the race chart", available_stats)
+    
+    race_type = st.radio("Select race type:", ("max", "min"))
+    
+    use_min_games = st.checkbox("Set minimum number of games played per season?")
+    min_games = None
+    if use_min_games:
+        min_games = st.number_input("Minimum average games per season:", min_value=1, value=50)
+    
+    if st.button("Generate Race Chart"):
+        try:
+            processed_data, adj_start_year, adj_end_year = process_data_for_race(
+                data_df, stat, start_year, end_year, player_type, race_type, min_games
+            )
+            if processed_data.empty:
+                st.warning(f"No data available for {stat} in the selected year range.")
+            else:
+                if adj_start_year != start_year or adj_end_year != end_year:
+                    st.warning(f"Adjusted year range to {adj_start_year}-{adj_end_year} due to data availability.")
+                
+                # Convert 'Value' to float for calculations
+                processed_data['Value_float'] = processed_data['Value'].astype(float)
+                
+                # Sort the dataframe based on race_type
+                processed_data = processed_data.sort_values(['Year', 'Value_float'], 
+                                                           ascending=[True, race_type == 'min'])
+                
+                # Ensure we have top 10 for each year
+                processed_data = processed_data.groupby('Year').apply(lambda x: x.nlargest(10, 'Value_float') if race_type == 'max' else x.nsmallest(10, 'Value_float')).reset_index(drop=True)
+                
+                create_race_plot(processed_data, stat, adj_start_year, adj_end_year, race_type)
+        except ValueError as e:
+            st.error(str(e))
 
 def plot_league_wide_stat(df, stat, year_range, stat_min_max, hover_data, data_type):
     if stat not in df.columns:
@@ -635,7 +659,25 @@ def create_hover_text(row, stat, hover_data, df):
     return hover_text.rstrip('<br>')
 
 def league_wide_stats_view():
-    st.subheader("League-wide Stat Histogram")
+    st.subheader("Historical Histogram")
+
+    st.markdown("""
+    This tool generates a historical view of league-wide statistics for either hitters or pitchers. Here's how it works:
+
+    1. Choose between hitters or pitchers statistics.
+    2. Select a year range for the analysis.
+    3. Optionally, set minimum playing time filters to focus on players with significant playing time.
+    4. Choose a specific statistic to analyze.
+    5. Decide whether to plot the maximum or minimum value for each year.
+    6. The tool will generate a histogram showing how the chosen statistic has changed over time, highlighting the best (or worst) performer each year.
+
+    Key features:
+    - Minimum playing time filters allow you to exclude players with limited appearances.
+    - The hover information provides additional stats for the highlighted player each year.
+    - You can easily compare how top performances in a particular stat have evolved over time.
+
+    This visualization is great for identifying historical trends, standout seasons, and how the boundaries of performance have shifted over time. Remember that changes in league conditions, rules, and other factors can influence these trends beyond just player performance.
+    """)
     
     player_type = st.radio("Would you like to see stats for hitters or pitchers?", ("Hitters", "Pitchers"))
     data_type = "Hitter" if player_type == "Hitters" else "Pitcher"
@@ -730,6 +772,19 @@ def calculate_similarity_scores(player_data, target_player, stats_to_compare):
 def player_similarity_view():
     st.subheader("Player Similarity Scores")
 
+    st.markdown("""
+    This tool finds players who are most similar to a selected player based on chosen statistical categories. Here's how it works:
+
+    1. Select whether you want to compare hitters or pitchers.
+    2. Choose a specific player to analyze.
+    3. Decide how many similar players you want to find.
+    4. Select the statistical categories you want to use for comparison. Default categories are provided, but you can customize these.
+    5. The tool will then calculate similarity scores based on these stats and show you the most similar players.
+    6. A bar chart will also be displayed, comparing the WAR (Wins Above Replacement) of the similar players to your chosen player.
+
+    This analysis uses a mathematical approach to find similarities and doesn't account for era differences, park factors, or other contextual elements. It's a fun way to explore player comparisons but should not be considered a definitive measure of player similarity.
+    """)
+
     player_type = st.radio("Would you like to find similar hitters or pitchers?", ("Hitters", "Pitchers"))
     data_type = "Hitter" if player_type == "Hitters" else "Pitcher"
 
@@ -810,7 +865,7 @@ def custom_war_generator():
 
     Both versions aim to measure a player's value in terms of wins above what a replacement-level player would provide.
 
-    This tool allows you to create your own version of WAR by adjusting the weights of various statistics.
+    This tool allows you to create your own version of WAR by adjusting the weights of various statistics. The point is, what do YOU think makes a player valuable?
     """)
 
     player_type = st.radio("Select player type:", ("Hitters", "Pitchers"))
@@ -1030,7 +1085,7 @@ def main():
     
     st.sidebar.title("Navigation")
     app_mode = st.sidebar.radio("Choose the mode",
-                                ["Individual Player", "Compare Players", "League-wide Stats", 
+                                ["Individual Player", "Compare Players", "Historical Histogram", 
                                  "Career Stat Race", "Player Similarity", "Custom WAR Generator",
                                  "How is he the GOAT?"])
     
@@ -1043,7 +1098,7 @@ def main():
         individual_player_view()
     elif app_mode == "Compare Players":
         compare_players_view()
-    elif app_mode == "League-wide Stats":
+    elif app_mode == "Historical Histogram":
         league_wide_stats_view()
     elif app_mode == "Career Stat Race":
         race_chart_view()
