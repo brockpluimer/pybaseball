@@ -982,13 +982,13 @@ def how_is_he_the_goat():
 
     # Define stats to use based on player type
     if data_type == "Hitter":
-        stats_to_use = ['G', 'AB', 'PA', 'H', '1B', '2B', '3B', 'HR', 'R', 'RBI', 'BB', 'IBB', 'SO', 'HBP', 'SF', 'SH', 'GDP', 'SB', 'CS', 'AVG', 'GB', 'FB', 'LD', 'IFFB', 'Pitches', 'Balls', 'Strikes', 'IFH', 'BU', 'BUH', 'BB%', 'K%', 'BB/K', 'OBP', 'SLG', 'OPS', 'ISO', 'BABIP', 'GB/FB', 'LD%', 'GB%', 'FB%', 'IFFB%', 'Bat', 'Fld', 'Spd']
+        stats_to_use = ['G', 'AB', 'PA', 'H', '1B', '2B', '3B', 'HR', 'R', 'RBI', 'BB', 'IBB', 'HBP', 'SF', 'SH', 'SB', 'AVG', 'Pitches', 'Balls', 'Strikes', 'IFH', 'BB%', 'BB/K', 'OBP', 'SLG', 'OPS', 'ISO', 'BABIP', 'GB/FB', 'LD%', 'FB%', 'Fld', 'Spd', 'GDP', 'CS', 'SO', 'SO%', 'CS', 'IFFB', 'Def', 'AVG+', 'BB%+', 'OBP+', 'SLG+', 'ISO+', 'Barrel%']
         # Stats where higher is worse
-        negative_stats = ['GDP', 'CS', 'SO']
+        negative_stats = ['GDP', 'CS', 'SO', 'SO%', 'CS', 'IFFB']
     else:  # Pitcher
-        stats_to_use = ['W', 'L', 'ERA', 'G', 'GS', 'CG', 'ShO', 'SV', 'BS', 'IP', 'TBF', 'H', 'R', 'ER', 'HR', 'BB', 'IBB', 'HBP', 'WP', 'BK', 'SO', 'GB', 'FB', 'LD', 'IFFB', 'Balls', 'Strikes', 'Pitches', 'RS', 'K/9', 'BB/9', 'K/BB', 'H/9', 'HR/9', 'AVG', 'WHIP', 'BABIP', 'LOB%', 'FIP']
+        stats_to_use = ['W', 'L', 'ERA', 'G', 'GS', 'CG', 'ShO', 'SV', 'BS', 'IP', 'TBF', 'H', 'R', 'ER', 'HR', 'BB', 'IBB', 'HBP', 'WP', 'BK', 'SO', 'GB%', 'FB%', 'LD%', 'IFFB', 'Balls', 'Strikes', 'Pitches', 'RS', 'K/9', 'BB/9', 'K/BB', 'H/9', 'HR/9', 'AVG', 'WHIP', 'BABIP', 'LOB%', 'FIP', 'GB/FB', 'HR/FB', 'Soft%', 'Hard%']
         # Stats where higher is worse
-        negative_stats = ['L', 'ERA', 'R', 'ER', 'HR', 'BB', 'IBB', 'HBP', 'WP', 'BK', 'BB/9', 'H/9', 'HR/9', 'AVG', 'WHIP', 'BABIP', 'FIP']
+        negative_stats = ['L', 'R', 'ER', 'HR', 'BB', 'IBB', 'HBP', 'WP', 'BK', 'BB/9', 'H/9', 'HR/9', 'AVG', 'WHIP', 'BABIP', 'FIP', 'HR/FB', 'Hard%', 'FB%', 'LD%']
 
     # Filter stats that are actually in the dataframe
     stats_to_use = [stat for stat in stats_to_use if stat in data_df.columns]
