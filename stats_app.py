@@ -52,12 +52,14 @@ def display_player_stats(player_data, player_type):
     id_to_name = player_data.groupby('IDfg')['Name'].first().to_dict()
     player_data = player_data.sort_values(['IDfg', 'year'])
 
-    # Define rate stats for hitters and pitchers
-    hitter_rate_stats = ['AVG', 'OBP', 'SLG', 'OPS', 'BB%', 'K%', 'ISO', 'BABIP', 'wRC+', 'wOBA', 'WAR', 'Off', 'Def', 'BsR', 'RAR', 'WAR/162', 'Off/162', 'Def/162', 'WPA', '-WPA', '+WPA', 'RE24', 'REW', 'pLI', 'phLI', 'WPA/LI', 'Clutch', 'FB%', 'GB%', 'LD%', 'Pull%', 'Cent%', 'Oppo%', 'Soft%', 'Med%', 'Hard%', 'IFFB%', 'IFH%', 'BUH%', 'O-Swing%', 'Z-Swing%', 'Swing%', 'O-Contact%', 'Z-Contact%', 'Contact%', 'Zone%', 'F-Strike%', 'SwStr%']
-    pitcher_rate_stats = ['ERA', 'WHIP', 'K/9', 'BB/9', 'HR/9', 'K%', 'BB%', 'K-BB%', 'AVG', 'BABIP', 'LOB%', 'FIP', 'xFIP', 'WAR', 'ERA-', 'FIP-', 'xFIP-', 'WPA', '-WPA', '+WPA', 'RE24', 'REW', 'pLI', 'inLI', 'gmLI', 'WPA/LI', 'Clutch', 'FB%', 'GB%', 'LD%', 'IFFB%', 'HR/FB', 'IFH%', 'BUH%', 'O-Swing%', 'Z-Swing%', 'Swing%', 'O-Contact%', 'Z-Contact%', 'Contact%', 'Zone%', 'F-Strike%', 'SwStr%']
+    # Define stat order for pitchers and hitters
+    pitcher_stat_order = ['WAR', 'W', 'L', 'ERA', 'G', 'GS', 'IP', 'AVG' 'WHIP', 'FIP', 'CG', 'ShO', 'SV', 'K/9', 'BB/9', 'K/BB', 'H/9', 'HR/9', 'BS', 'TBF', 'H', 'R', 'HR', 'SO', 'BB', 'IBB', 'HBP', 'WP', 'BK', 'GB%', 'FB%', 'LD%', 'IFH', 'IFFB', 'Balls', 'Strikes', 'Pitches']
+    hitter_stat_order = ['WAR', 'G', 'AB', 'PA', 'H', '1B', '2B', '3B', 'HR', 'R', 'RBI', 'AVG', 'OBP', 'SLG', 'OPS', 'BB', 'SO', 'HBP', 'SF', 'SH', 'GDP', 'SB', 'CS', 'GB', 'FB', 'BB%', 'K%', 'BB/K', 'ISO']
 
-    # Determine which rate stats to use based on player type
-    rate_stats = hitter_rate_stats if player_type == "Hitter" else pitcher_rate_stats
+    stat_order = pitcher_stat_order if player_type == "Pitcher" else hitter_stat_order
+
+    # Define rate stats (stats that should be averaged instead of summed)
+    rate_stats = ['AVG', 'OBP', 'SLG', 'OPS', 'BB%', 'K%', 'ISO', 'BABIP', 'wRC+', 'wOBA', 'WAR', 'ERA', 'WHIP', 'K/9', 'BB/9', 'H/9','HR/9', 'K/BB', 'FIP', 'xFIP']
 
     st.header("Career Summary")
     for idfg in player_data['IDfg'].unique():
@@ -73,22 +75,40 @@ def display_player_stats(player_data, player_type):
     )
     career_stats['Name'] = career_stats.index.map(id_to_name)
     
-    # Move 'Age' to the end if it exists
     if 'Age' in career_stats.columns:
         age_col = career_stats.pop('Age')
         career_stats['Age'] = age_col
 
     career_stats = career_stats.reset_index().set_index(['Name', 'IDfg'])
     
-    # Format the display to remove commas
-    st.dataframe(career_stats.applymap(lambda x: f"{x:.0f}" if isinstance(x, (int, float)) else x))
+    # Reorder columns based on stat_order
+    ordered_cols = [col for col in stat_order if col in career_stats.columns]
+    other_cols = [col for col in career_stats.columns if col not in ordered_cols and col not in ['Name', 'IDfg']]
+    career_stats = career_stats[ordered_cols + other_cols]
+
+    # Function to format numbers while preserving original precision
+    def format_number(x):
+        if isinstance(x, int):
+            return f"{x}"
+        elif isinstance(x, float):
+            if x.is_integer():
+                return f"{int(x)}"
+            else:
+                return f"{x:.3f}"
+        return x
+
+    st.dataframe(career_stats.applymap(format_number))
 
     st.header("Yearly Stats")
     yearly_stats = player_data.copy()
     yearly_stats['Name'] = yearly_stats['IDfg'].map(id_to_name)
     
-    # Format the display to remove commas
-    formatted_yearly_stats = yearly_stats.applymap(lambda x: f"{x:.0f}" if isinstance(x, (int, float)) else x)
+    # Reorder columns for yearly stats
+    ordered_cols = ['Name', 'IDfg', 'year'] + [col for col in stat_order if col in yearly_stats.columns]
+    other_cols = [col for col in yearly_stats.columns if col not in ordered_cols]
+    yearly_stats = yearly_stats[ordered_cols + other_cols]
+    
+    formatted_yearly_stats = yearly_stats.applymap(format_number)
     st.dataframe(formatted_yearly_stats.set_index(['Name', 'IDfg', 'year']))
 
     st.header("Stat Explorer")
@@ -184,18 +204,15 @@ def display_player_stats(player_data, player_type):
 def individual_player_view():
     st.subheader("Individual Player Statistics")
 
-    # Ask user to choose between hitters and pitchers
-    player_type = st.radio("Would you like to see stats for a hitter or a pitcher?", ("Hitter", "Pitcher"))
+    player_type = st.radio("Would you like to see stats for a hitter or a pitcher?", ("Pitcher", "Hitter"))
 
-    player_input = st.text_input("Enter player name or FanGraphs ID:", "Shohei Ohtani")
+    default_player = "Clayton Kershaw" if player_type == "Pitcher" else "Shohei Ohtani"
+    player_input = st.text_input("Enter player name or FanGraphs ID:", default_player)
     
     if st.button("Load Player Data") or ('player_data' in st.session_state and st.session_state.player_data is not None):
         if 'player_data' not in st.session_state or st.session_state.player_data is None:
-            # Load data for both hitter and pitcher
             hitter_data = load_and_filter_data("Hitter", [player_input])
             pitcher_data = load_and_filter_data("Pitcher", [player_input])
-            
-            # Combine the data
             st.session_state.player_data = pd.concat([hitter_data, pitcher_data])
         
         if st.session_state.player_data.empty:
@@ -203,12 +220,11 @@ def individual_player_view():
         else:
             st.success(f"Data loaded for {player_input}")
             
-            # Filter data based on selected player type
             filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] == player_type.lower()]
             
             if filtered_data.empty:
-                st.warning(f"No {player_type.lower()} data found for {player_input}. They might be a {['pitcher', 'hitter'][player_type == 'Pitcher']}.")
-                if st.button(f"Show {['pitcher', 'hitter'][player_type == 'Pitcher']} data instead"):
+                st.warning(f"No {player_type.lower()} data found for {player_input}. They might be a {['pitcher', 'hitter'][player_type == 'Hitter']}.")
+                if st.button(f"Show {['pitcher', 'hitter'][player_type == 'Hitter']} data instead"):
                     filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] != player_type.lower()]
             
             if not filtered_data.empty:
@@ -219,37 +235,32 @@ def individual_player_view():
 def compare_players_view():
     st.subheader("Compare Players")
 
-    # Ask user to choose between hitters and pitchers
-    player_type = st.radio("Would you like to compare hitters or pitchers?", ("Hitters", "Pitchers"))
-    data_type = "Hitter" if player_type == "Hitters" else "Pitcher"
+    player_type = st.radio("Would you like to compare hitters or pitchers?", ("Pitchers", "Hitters"))
+    data_type = "Pitcher" if player_type == "Pitchers" else "Hitter"
 
     st.subheader("Enter up to 10 player names or FanGraphs IDs (one per line):")
-    player_inputs = st.text_area("Player Names or IDs", "Shohei Ohtani\nMike Trout").split('\n')
+    default_players = "Clayton Kershaw\nSandy Koufax" if data_type == "Pitcher" else "Shohei Ohtani\nBarry Bonds"
+    player_inputs = st.text_area("Player Names or IDs", default_players).split('\n')
     player_inputs = [input.strip() for input in player_inputs if input.strip()][:10]  # Limit to 10 players
 
-    # Reset session state if coming from individual view or if it's None
     if 'player_data' in st.session_state:
         if st.session_state.player_data is None or (isinstance(st.session_state.player_data, pd.DataFrame) and len(st.session_state.player_data['IDfg'].unique()) == 1):
             st.session_state.player_data = None
 
     if st.button("Load Players Data") or ('player_data' in st.session_state and st.session_state.player_data is not None):
         if 'player_data' not in st.session_state or st.session_state.player_data is None:
-            # Load data for both hitters and pitchers
             hitter_data = load_and_filter_data("Hitter", player_inputs)
             pitcher_data = load_and_filter_data("Pitcher", player_inputs)
-            
-            # Combine the data
             st.session_state.player_data = pd.concat([hitter_data, pitcher_data])
 
         if st.session_state.player_data.empty:
             st.error("No data found for the specified players")
         else:
-            # Filter data based on selected player type
             filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] == data_type.lower()]
             
             if filtered_data.empty:
-                st.warning(f"No {data_type.lower()} data found for the specified players. They might be {['pitchers', 'hitters'][data_type == 'Pitcher']}.")
-                if st.button(f"Show {['pitcher', 'hitter'][data_type == 'Pitcher']} data instead"):
+                st.warning(f"No {data_type.lower()} data found for the specified players. They might be {['pitchers', 'hitters'][data_type == 'Hitter']}.")
+                if st.button(f"Show {['pitcher', 'hitter'][data_type == 'Hitter']} data instead"):
                     filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] != data_type.lower()]
             
             if not filtered_data.empty:
@@ -282,8 +293,8 @@ def process_data_for_race(df, stat, start_year, end_year, player_type, race_type
     df = df[(df['year'] >= adjusted_start_year) & (df['year'] <= adjusted_end_year)]
 
     # Define rate stats for hitters and pitchers
-    hitter_rate_stats = ['AVG', 'OBP', 'SLG', 'OPS', 'BB%', 'K%', 'ISO', 'BABIP', 'wRC+', 'wOBA', 'WAR', 'Off', 'Def', 'BsR', 'RAR', 'WAR/162', 'Off/162', 'Def/162', 'WPA', '-WPA', '+WPA', 'RE24', 'REW', 'pLI', 'phLI', 'WPA/LI', 'Clutch', 'FB%', 'GB%', 'LD%', 'Pull%', 'Cent%', 'Oppo%', 'Soft%', 'Med%', 'Hard%', 'IFFB%', 'IFH%', 'BUH%', 'O-Swing%', 'Z-Swing%', 'Swing%', 'O-Contact%', 'Z-Contact%', 'Contact%', 'Zone%', 'F-Strike%', 'SwStr%']
-    pitcher_rate_stats = ['ERA', 'WHIP', 'K/9', 'BB/9', 'HR/9', 'K%', 'BB%', 'K-BB%', 'AVG', 'BABIP', 'LOB%', 'FIP', 'xFIP', 'WAR', 'ERA-', 'FIP-', 'xFIP-', 'WPA', '-WPA', '+WPA', 'RE24', 'REW', 'pLI', 'inLI', 'gmLI', 'WPA/LI', 'Clutch', 'FB%', 'GB%', 'LD%', 'IFFB%', 'HR/FB', 'IFH%', 'BUH%', 'O-Swing%', 'Z-Swing%', 'Swing%', 'O-Contact%', 'Z-Contact%', 'Contact%', 'Zone%', 'F-Strike%', 'SwStr%']
+    hitter_rate_stats = ['AVG', 'OBP', 'SLG', 'OPS', 'BB%', 'K%', 'ISO', 'BABIP', 'wRC+', 'wOBA', 'Off', 'Def', 'BsR', 'RAR', 'WAR/162', 'Off/162', 'Def/162', 'WPA', '-WPA', '+WPA', 'RE24', 'REW', 'pLI', 'phLI', 'WPA/LI', 'Clutch', 'FB%', 'GB%', 'LD%', 'Pull%', 'Cent%', 'Oppo%', 'Soft%', 'Med%', 'Hard%', 'IFFB%', 'IFH%', 'BUH%', 'O-Swing%', 'Z-Swing%', 'Swing%', 'O-Contact%', 'Z-Contact%', 'Contact%', 'Zone%', 'F-Strike%', 'SwStr%']
+    pitcher_rate_stats = ['ERA', 'WHIP', 'K/9', 'BB/9', 'HR/9', 'K%', 'BB%', 'K-BB%', 'AVG', 'BABIP', 'LOB%', 'FIP', 'xFIP', 'ERA-', 'FIP-', 'xFIP-', 'WPA', '-WPA', '+WPA', 'RE24', 'REW', 'pLI', 'inLI', 'gmLI', 'WPA/LI', 'Clutch', 'FB%', 'GB%', 'LD%', 'IFFB%', 'HR/FB', 'IFH%', 'BUH%', 'O-Swing%', 'Z-Swing%', 'Swing%', 'O-Contact%', 'Z-Contact%', 'Contact%', 'Zone%', 'F-Strike%', 'SwStr%']
     
     rate_stats = hitter_rate_stats if player_type == "Hitter" else pitcher_rate_stats
     
@@ -508,8 +519,24 @@ def race_chart_view():
         st.error("Start year must be less than end year.")
         return
     
+    # Define stat order for pitchers and hitters
+    pitcher_stat_order = ['WAR', 'W', 'L', 'ERA', 'G', 'GS', 'IP', 'AVG', 'WHIP', 'FIP', 'CG', 'ShO', 'SV', 'K/9', 'BB/9', 'K/BB', 'H/9', 'HR/9', 'BS', 'TBF', 'H', 'R', 'HR', 'SO', 'BB', 'IBB', 'HBP', 'WP', 'BK', 'GB%', 'FB%', 'LD%', 'IFH', 'IFFB', 'Balls', 'Strikes', 'Pitches']
+    hitter_stat_order = ['WAR', 'G', 'AB', 'PA', 'H', '1B', '2B', '3B', 'HR', 'R', 'RBI', 'AVG', 'OBP', 'SLG', 'OPS', 'BB', 'SO', 'HBP', 'SF', 'SH', 'GDP', 'SB', 'CS', 'GB', 'FB', 'BB%', 'K%', 'BB/K', 'ISO']
+
+    # Get all available stats from the dataframe
     available_stats = list(data_df.select_dtypes(include=[int, float]).columns)
-    stat = st.selectbox("Select the stat for the race chart", available_stats)
+    
+    # Order the stats based on the player type
+    if player_type == "Pitcher":
+        ordered_stats = [stat for stat in pitcher_stat_order if stat in available_stats]
+    else:
+        ordered_stats = [stat for stat in hitter_stat_order if stat in available_stats]
+    
+    # Add any remaining stats that weren't in the predefined order
+    remaining_stats = [stat for stat in available_stats if stat not in ordered_stats]
+    ordered_stats.extend(remaining_stats)
+    
+    stat = st.selectbox("Select the stat for the race chart", ordered_stats)
     
     race_type = st.radio("Select race type:", ("max", "min"))
     
@@ -853,7 +880,7 @@ def custom_war_generator():
     # Explanation of WAR
     st.markdown("""
     ### What is WAR?
-    WAR (Wins Above Replacement) is a comprehensive statistic that attempts to summarize a player's total contributions to their team in one statistic. It's calculated differently for position players and pitchers.
+    WAR (Wins Above Replacement) is a comprehensive statistic that attempts to summarize a player's total contributions to their team in one statistic. It's calculated differently for position players and pitchers. As a general rule, a player who earns 0-1 WAR in a year is considered replacement level; 1-2 is a utility player, 2-3 is an average starter, 3-4 is an above average starter, 4-5 is an All-Star, 5-6 is a Superstar, and 6+ is MVP-level
 
     #### bWAR (Baseball-Reference WAR):
     - For position players: Combines batting, baserunning, and fielding value adjusted for position and league.
@@ -865,7 +892,21 @@ def custom_war_generator():
 
     Both versions aim to measure a player's value in terms of wins above what a replacement-level player would provide.
 
-    This tool allows you to create your own version of WAR by adjusting the weights of various statistics. The point is, what do YOU think makes a player valuable?
+    This tool allows you to create your own version of WAR by adjusting the weights of various statistics. The point is, what do YOU think makes a player valuable? Note that the maximum WAR a player can earn in this model is 15, and the lowest is -5.
+    
+    ### Understanding the Weight Range (-1 to 1)
+    
+    The weight range from -1 to 1 determines how much each statistic contributes to the custom WAR calculation:
+    
+    - A weight of 1 means the stat has the maximum positive impact on the WAR calculation.
+    - A weight of -1 means the stat has the maximum negative impact on the WAR calculation.
+    - A weight of 0 means the stat has no impact on the WAR calculation.
+    - Values between 0 and 1 (or 0 and -1) represent varying degrees of positive (or negative) impact.
+    
+    For example, if you set the weight for home runs (HR) to 0.5 and the weight for strikeouts (SO) to -0.3, 
+    it means that home runs will have a moderate positive impact on a player's WAR, while strikeouts will have 
+    a slightly smaller negative impact. The relative magnitudes of these weights determine how much each stat 
+    influences the final WAR value.
     """)
 
     player_type = st.radio("Select player type:", ("Hitters", "Pitchers"))
@@ -873,80 +914,119 @@ def custom_war_generator():
 
     data_df = load_and_filter_data(data_type)
 
-    # [Year and age restriction code remains the same]
+    calculation_type = st.radio("Select calculation type:", ("Season-by-Season", "Career Average"))
+
+    use_min_filter = st.checkbox("Set minimum playing time filter?")
+    min_games = min_pa = min_ip = None
+    if use_min_filter:
+        col1, col2 = st.columns(2)
+        with col1:
+            min_games = st.number_input("Minimum games per season:", min_value=1, value=20)
+        with col2:
+            if data_type == "Hitter":
+                min_pa = st.number_input("Minimum PA per season:", min_value=1, value=200)
+            else:  # Pitcher
+                min_ip = st.number_input("Minimum IP per season:", min_value=1, value=50)
 
     if data_type == "Hitter":
         default_stats = ['AVG', 'OBP', 'SLG', 'HR', 'RBI', 'SB', 'BB%', 'K%', 'ISO', 'wRC+', 'Def']
     else:  # Pitcher
         default_stats = ['ERA', 'WHIP', 'K/9', 'BB/9', 'HR/9', 'FIP', 'IP', 'W', 'SV']
 
-    # Option to include additional stats
     additional_stats = st.multiselect("Select additional stats to include:", 
                                       [col for col in data_df.columns if col not in default_stats + ['Name', 'Team', 'year', 'Age', 'IDfg']])
     
     all_stats = default_stats + additional_stats
 
-    # Create toggles for each stat
-    st.write("Toggle stats to include in your custom WAR calculation:")
     stat_toggles = {}
     for stat in all_stats:
         if stat in data_df.columns:
             stat_toggles[stat] = st.checkbox(f"Include {stat}", value=True)
 
-    # Filter stats based on toggles
     stats_to_use = [stat for stat in all_stats if stat_toggles.get(stat, False)]
 
-    st.write("Adjust the weights for each included statistic to create your custom WAR:")
-    
     weights = {}
     for stat in stats_to_use:
-        weights[stat] = st.slider(f"Weight for {stat}", min_value=-1.0, max_value=1.0, value=0.1, step=0.1)
+        weight = st.number_input(f"Weight for {stat}", min_value=-1.0, max_value=1.0, value=0.1, step=0.0001, format="%.4f")
+        weights[stat] = weight
 
     if st.button("Generate Custom WAR"):
         if not stats_to_use:
             st.warning("Please select at least one stat to include in the WAR calculation.")
             return
 
-        # Normalize the data
+        if use_min_filter:
+            if data_type == "Hitter":
+                data_df = data_df[(data_df['G'] >= min_games) & (data_df['PA'] >= min_pa)]
+            else:  # Pitcher
+                data_df = data_df[(data_df['G'] >= min_games) & (data_df['IP'] >= min_ip)]
+
         scaler = MinMaxScaler()
         scaled_data = pd.DataFrame(scaler.fit_transform(data_df[stats_to_use]), 
                                    columns=stats_to_use, index=data_df.index)
 
-        # Calculate custom WAR
         custom_war = pd.Series(0, index=data_df.index)
         for stat, weight in weights.items():
             custom_war += scaled_data[stat] * weight
 
-        # Normalize custom WAR to a familiar scale (e.g., -2 to 10)
-        custom_war = (custom_war - custom_war.min()) / (custom_war.max() - custom_war.min()) * 12 - 2
+        custom_war = (custom_war - custom_war.min()) / (custom_war.max() - custom_war.min()) * 20 - 5
 
-        # Add custom WAR to the dataframe
         data_df['Custom WAR'] = custom_war
 
-        # Display top players by custom WAR
-        st.subheader("Top Players by Custom WAR")
-        top_players = data_df.groupby('Name')['Custom WAR'].mean().sort_values(ascending=False).head(20)
-        st.table(top_players.round(2))
+        if calculation_type == "Career Average":
+            career_war = data_df.groupby('Name').agg({
+                'Custom WAR': 'mean',
+                'year': ['min', 'max', 'count']
+            }).reset_index()
+            career_war.columns = ['Name', 'Custom WAR', 'First Year', 'Last Year', 'Years Played']
+            data_df = career_war
+        else:
+            data_df['Years Played'] = 1
+            data_df['First Year'] = data_df['year']
+            data_df['Last Year'] = data_df['year']
 
-        # Visualize custom WAR distribution
-        fig = px.histogram(data_df, x='Custom WAR', nbins=50, 
-                           title="Distribution of Custom WAR")
+        st.session_state.custom_war_data = data_df
+        st.session_state.calculation_type = calculation_type
+
+        st.success("Custom WAR calculated successfully. Use the date range slider below to view results.")
+
+    if 'custom_war_data' in st.session_state:
+        data_df = st.session_state.custom_war_data
+        calculation_type = st.session_state.calculation_type
+
+        if calculation_type == "Season-by-Season":
+            min_year, max_year = int(data_df['year'].min()), int(data_df['year'].max())
+            top_players_start_year, top_players_end_year = st.slider(
+                "Select the year range for top players:",
+                min_value=min_year,
+                max_value=max_year,
+                value=(min_year, max_year)
+            )
+            filtered_df = data_df[(data_df['year'] >= top_players_start_year) & (data_df['year'] <= top_players_end_year)]
+        else:
+            filtered_df = data_df
+
+        st.subheader(f"Top Players by Custom WAR ({calculation_type})")
+        top_players = filtered_df.sort_values('Custom WAR', ascending=False).head(20)
+        st.table(top_players[['Name', 'Custom WAR', 'Years Played', 'First Year', 'Last Year']].round(2))
+
+        fig = px.histogram(filtered_df, x='Custom WAR', nbins=50, 
+                           title=f"Distribution of Custom WAR ({calculation_type})")
         st.plotly_chart(fig)
 
-        # Compare custom WAR to traditional WAR
-        if 'WAR' in data_df.columns:
-            fig = px.scatter(data_df, x='WAR', y='Custom WAR', hover_data=['Name'],
-                             title="Custom WAR vs Traditional WAR")
+        if 'WAR' in filtered_df.columns:
+            fig = px.scatter(filtered_df, x='WAR', y='Custom WAR', hover_data=['Name', 'year'],
+                             title=f"Custom WAR vs Traditional WAR ({calculation_type})")
             st.plotly_chart(fig)
 
-        # Option to download the data
-        csv = data_df[['Name', 'Team', 'year', 'Age', 'Custom WAR'] + stats_to_use].to_csv(index=False)
+        csv = filtered_df.to_csv(index=False)
         st.download_button(
             label="Download Custom WAR Data",
             data=csv,
-            file_name="custom_war_data.csv",
+            file_name=f"custom_war_data_{calculation_type.lower().replace(' ', '_')}.csv",
             mime="text/csv",
         )
+
 
 def how_is_he_the_goat():
     st.subheader("How is he the GOAT?")
@@ -982,13 +1062,13 @@ def how_is_he_the_goat():
 
     # Define stats to use based on player type
     if data_type == "Hitter":
-        stats_to_use = ['G', 'AB', 'PA', 'H', '1B', '2B', '3B', 'HR', 'R', 'RBI', 'BB', 'IBB', 'HBP', 'SF', 'SH', 'SB', 'AVG', 'Pitches', 'Balls', 'Strikes', 'IFH', 'BB%', 'BB/K', 'OBP', 'SLG', 'OPS', 'ISO', 'BABIP', 'GB/FB', 'LD%', 'FB%', 'Fld', 'Spd', 'GDP', 'CS', 'SO', 'SO%', 'CS', 'IFFB', 'Def', 'AVG+', 'BB%+', 'OBP+', 'SLG+', 'ISO+', 'Barrel%']
+        stats_to_use = ['G', 'AB', 'PA', 'H', '1B', '2B', '3B', 'HR', 'R', 'RBI', 'BB', 'IBB', 'SO', 'HBP', 'SF', 'SH', 'GDP', 'SB', 'CS', 'AVG', 'GB', 'FB', 'LD', 'IFFB', 'Pitches', 'Balls', 'Strikes', 'IFH', 'BB%', 'BB/K', 'OBP', 'SLG', 'OPS', 'ISO', 'BABIP', 'GB/FB', 'LD%', 'GB%', 'FB%', 'IFFB%', 'Bat', 'Fld', 'Spd']
         # Stats where higher is worse
-        negative_stats = ['GDP', 'CS', 'SO', 'SO%', 'CS', 'IFFB']
+        negative_stats = ['GDP', 'CS', 'SO', 'K%']
     else:  # Pitcher
-        stats_to_use = ['W', 'L', 'ERA', 'G', 'GS', 'CG', 'ShO', 'SV', 'BS', 'IP', 'TBF', 'H', 'R', 'ER', 'HR', 'BB', 'IBB', 'HBP', 'WP', 'BK', 'SO', 'GB%', 'FB%', 'LD%', 'IFFB', 'Balls', 'Strikes', 'Pitches', 'RS', 'K/9', 'BB/9', 'K/BB', 'H/9', 'HR/9', 'AVG', 'WHIP', 'BABIP', 'LOB%', 'FIP', 'GB/FB', 'HR/FB', 'Soft%', 'Hard%']
+        stats_to_use = ['W', 'L', 'ERA', 'G', 'GS', 'CG', 'ShO', 'SV', 'BS', 'IP', 'TBF', 'H', 'R', 'ER', 'HR', 'BB', 'IBB', 'HBP', 'WP', 'BK', 'SO', 'GB', 'FB', 'LD', 'IFFB', 'Balls', 'Strikes', 'Pitches', 'RS', 'K/9', 'BB/9', 'K/BB', 'H/9', 'HR/9', 'AVG', 'WHIP', 'BABIP', 'LOB%', 'FIP']
         # Stats where higher is worse
-        negative_stats = ['L', 'R', 'ER', 'HR', 'BB', 'IBB', 'HBP', 'WP', 'BK', 'BB/9', 'H/9', 'HR/9', 'AVG', 'WHIP', 'BABIP', 'FIP', 'HR/FB', 'Hard%', 'FB%', 'LD%']
+        negative_stats = ['L', 'ERA', 'R', 'ER', 'HR', 'BB', 'IBB', 'HBP', 'WP', 'BK', 'BB/9', 'H/9', 'HR/9', 'AVG', 'WHIP', 'BABIP', 'FIP']
 
     # Filter stats that are actually in the dataframe
     stats_to_use = [stat for stat in stats_to_use if stat in data_df.columns]
