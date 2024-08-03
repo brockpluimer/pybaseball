@@ -204,7 +204,7 @@ def display_player_stats(player_data, player_type):
 def individual_player_view():
     st.subheader("Individual Player Statistics")
 
-    player_type = st.radio("Would you like to see stats for a hitter or a pitcher?", ("Pitcher", "Hitter"))
+    player_type = st.radio("Would you like to see stats for a hitter or a pitcher?", ("Hitter", "Pitcher"))
 
     default_player = "Clayton Kershaw" if player_type == "Pitcher" else "Shohei Ohtani"
     player_input = st.text_input("Enter player name or FanGraphs ID:", default_player)
@@ -235,11 +235,11 @@ def individual_player_view():
 def compare_players_view():
     st.subheader("Compare Players")
 
-    player_type = st.radio("Would you like to compare hitters or pitchers?", ("Pitchers", "Hitters"))
+    player_type = st.radio("Would you like to compare hitters or pitchers?", ("Hitters", "Pitchers"))
     data_type = "Pitcher" if player_type == "Pitchers" else "Hitter"
 
     st.subheader("Enter up to 10 player names or FanGraphs IDs (one per line):")
-    default_players = "Clayton Kershaw\nSandy Koufax" if data_type == "Pitcher" else "Shohei Ohtani\nBarry Bonds"
+    default_players = "Clayton Kershaw\nSandy Koufax" if data_type == "Pitcher" else "Shohei Ohtani\nMookie Betts"
     player_inputs = st.text_area("Player Names or IDs", default_players).split('\n')
     player_inputs = [input.strip() for input in player_inputs if input.strip()][:10]  # Limit to 10 players
 
@@ -759,19 +759,32 @@ def league_wide_stats_view():
         
         plot_league_wide_stat(data_df, stat, year_range, stat_min_max, hover_data, data_type)
 
-def calculate_similarity_scores(player_data, target_player, stats_to_compare):
+def calculate_similarity_scores(player_data, target_player, stats_to_compare, mode='season', scaling_factor=10):
     # Filter players of the same type (hitter or pitcher)
     player_data = player_data[player_data['player_type'] == target_player['player_type']]
     
-    # Prepare the data
-    players_stats = player_data.groupby('IDfg')[stats_to_compare].mean().reset_index()
+    if mode == 'season':
+        # For season mode, we'll compare individual seasons
+        # Exclude the target player's other seasons
+        players_stats = player_data[
+            (player_data['IDfg'] != target_player['IDfg']) | 
+            (player_data['year'] == target_player['year'])
+        ]
+        players_stats = players_stats[stats_to_compare + ['IDfg', 'Name', 'year']]
+    else:  # Career mode
+        # For career mode, we'll compare career averages
+        numeric_stats = [stat for stat in stats_to_compare if player_data[stat].dtype in ['int64', 'float64']]
+        players_stats = player_data.groupby('IDfg').agg({
+            **{stat: 'mean' for stat in numeric_stats},
+            'Name': 'first',
+            'year': ['min', 'max']
+        }).reset_index()
+        
+        players_stats.columns = ['IDfg'] + numeric_stats + ['Name', 'First Year', 'Last Year']
+        players_stats['Years'] = players_stats['Last Year'] - players_stats['First Year'] + 1
     
     # Remove players with missing data for any of the selected stats
     players_stats = players_stats.dropna(subset=stats_to_compare)
-    
-    # If target player is not in the filtered dataset, return empty DataFrame
-    if target_player['IDfg'] not in players_stats['IDfg'].values:
-        return pd.DataFrame(columns=['IDfg', 'Similarity'])
     
     # Normalize the data
     scaler = MinMaxScaler()
@@ -781,18 +794,36 @@ def calculate_similarity_scores(player_data, target_player, stats_to_compare):
     target_player_stats = normalized_stats[players_stats['IDfg'] == target_player['IDfg']]
     distances = euclidean_distances(target_player_stats, normalized_stats)[0]
     
-    # Create similarity scores (inverse of distance)
-    max_distance = np.max(distances)
-    similarity_scores = 1 - (distances / max_distance)
+    # Create similarity scores with scaling factor
+    similarity_scores = np.exp(-scaling_factor * distances)
     
     # Create a dataframe with results
     results = pd.DataFrame({
         'IDfg': players_stats['IDfg'],
+        'Name': players_stats['Name'],
         'Similarity': similarity_scores
     })
     
-    # Sort by similarity and exclude the target player
-    results = results[results['IDfg'] != target_player['IDfg']].sort_values('Similarity', ascending=False)
+    # Add year information
+    if mode == 'season':
+        results['year'] = players_stats['year']
+    else:
+        results['Years'] = players_stats['Years']
+        results['First Year'] = players_stats['First Year']
+        results['Last Year'] = players_stats['Last Year']
+    
+    # Add all stats for hover data
+    for stat in stats_to_compare:
+        results[stat] = players_stats[stat]
+    
+    # Sort by similarity and exclude the target player's season
+    if mode == 'season':
+        results = results[
+            (results['IDfg'] != target_player['IDfg']) | 
+            (results['year'] != target_player['year'])
+        ].sort_values('Similarity', ascending=False)
+    else:
+        results = results[results['IDfg'] != target_player['IDfg']].sort_values('Similarity', ascending=False)
     
     return results
 
@@ -803,73 +834,122 @@ def player_similarity_view():
     This tool finds players who are most similar to a selected player based on chosen statistical categories. Here's how it works:
 
     1. Select whether you want to compare hitters or pitchers.
-    2. Choose a specific player to analyze.
-    3. Decide how many similar players you want to find.
-    4. Select the statistical categories you want to use for comparison. Default categories are provided, but you can customize these.
-    5. The tool will then calculate similarity scores based on these stats and show you the most similar players.
-    6. A bar chart will also be displayed, comparing the WAR (Wins Above Replacement) of the similar players to your chosen player.
+    2. Choose if you want to compare individual seasons or entire careers.
+    3. Choose a specific player to analyze.
+    4. Decide how many similar players you want to find.
+    5. Select the statistical categories you want to use for comparison. Default categories are provided, but you can customize these.
+    6. The tool will then calculate similarity scores based on these stats and show you the most similar players.
+    7. A scatter plot will be displayed, comparing the selected stat and similarity scores of similar players to your chosen player.
 
     This analysis uses a mathematical approach to find similarities and doesn't account for era differences, park factors, or other contextual elements. It's a fun way to explore player comparisons but should not be considered a definitive measure of player similarity.
     """)
 
-    player_type = st.radio("Would you like to find similar hitters or pitchers?", ("Hitters", "Pitchers"))
+    player_type = st.radio("Would you like to find similar hitters or pitchers?", ("Hitters", "Pitchers"), key="player_type_radio")
     data_type = "Hitter" if player_type == "Hitters" else "Pitcher"
+
+    mode = st.radio("Select comparison mode:", ("Season", "Career"), key="comparison_mode_radio")
 
     all_data = load_and_filter_data(data_type)
     players = all_data[['IDfg', 'Name', 'player_type']].drop_duplicates()
     
-    target_player_name = st.selectbox(f"Select a {player_type.lower()[:-1]}:", players['Name'].unique())
-    num_similar_players = st.slider("Number of similar players to find:", 1, 20, 5)
+    # Set Clayton Kershaw as the default pitcher and Shohei Ohtani as the default hitter
+    default_player = "Clayton Kershaw" if data_type == "Pitcher" else "Shohei Ohtani"
+    
+    # Check if the default player is in the dataset, if not use the first player in the list
+    if default_player not in players['Name'].unique():
+        default_player = players['Name'].iloc[0]
+    
+    target_player_name = st.selectbox(
+        f"Select a {player_type.lower()[:-1]}:",
+        players['Name'].unique(),
+        index=list(players['Name'].unique()).index(default_player),
+        key="player_name_selectbox"
+    )
+    
+    if mode == "Season":
+        seasons = sorted(all_data[all_data['Name'] == target_player_name]['year'].unique(), reverse=True)
+        target_year = st.selectbox(
+            "Select season:",
+            seasons,
+            index=0,
+            key="season_selectbox"
+        )
+        target_player = all_data[(all_data['Name'] == target_player_name) & (all_data['year'] == target_year)].iloc[0]
+    else:
+        target_player = players[players['Name'] == target_player_name].iloc[0]
+
+    num_similar_players = st.slider("Number of similar players to find:", 1, 20, 5, key="num_similar_players_slider")
     
     if data_type == "Pitcher":
-        default_stats = ['ERA', 'WHIP', 'K/9', 'BB/9', 'HR/9', 'FIP']
+        default_stats = ['WAR', 'ERA', 'WHIP', 'K/9', 'BB/9', 'HR/9', 'FIP']
     else:
-        default_stats = ['AVG', 'OBP', 'SLG', 'wRC+', 'ISO', 'BB%', 'K%']
+        default_stats = ['WAR', 'AVG', 'OBP', 'SLG', 'wRC+', 'ISO', 'BB%', 'K%']
     
     available_stats = [col for col in all_data.columns if col not in ['IDfg', 'Name', 'Team', 'year', 'player_type']]
-    stats_to_compare = st.multiselect("Select stats to compare:", available_stats, default=default_stats)
-    
+    stats_to_compare = st.multiselect(
+        "Select stats to compare:",
+        available_stats,
+        default=default_stats,
+        key="stats_to_compare_multiselect"
+    )
+
+    scaling_factor = st.slider(
+        "Similarity scaling factor:",
+        1, 50, 10,
+        help="Higher values make similarity scores more sensitive to differences",
+        key="scaling_factor_slider"
+    )
+
     if st.button("Find Similar Players"):
-        target_player = players[players['Name'] == target_player_name].iloc[0]
-        similarity_scores = calculate_similarity_scores(all_data, target_player, stats_to_compare)
+        similarity_scores = calculate_similarity_scores(all_data, target_player, stats_to_compare, mode.lower(), scaling_factor)
         
         if similarity_scores.empty:
             st.warning(f"No similar players found for {target_player_name} using the selected stats. This may be due to missing data for the selected player or stats. Try selecting different stats.")
         else:
             st.subheader(f"Players most similar to {target_player_name}")
             for _, player in similarity_scores.head(num_similar_players).iterrows():
-                similar_player = players[players['IDfg'] == player['IDfg']].iloc[0]
-                st.write(f"{similar_player['Name']} (Similarity: {player['Similarity']:.2f})")
+                player_name = f"{player['Name']} ({player['year']})" if mode == "Season" else f"{player['Name']} ({player['First Year']}-{player['Last Year']})"
+                st.write(f"{player_name} (Similarity: {player['Similarity']:.2f})")
             
-            # WAR Comparison Plot
-            war_data = []
-            for _, player in similarity_scores.head(num_similar_players).iterrows():
-                player_data = all_data[all_data['IDfg'] == player['IDfg']]
-                war = player_data['WAR'].mean() if 'WAR' in player_data.columns else 0
-                war_data.append({
-                    'Name': players[players['IDfg'] == player['IDfg']].iloc[0]['Name'],
-                    'WAR': war,
-                    'Similarity': player['Similarity']
-                })
+            # Determine which stat to use for the y-axis
+            y_stat = 'WAR' if 'WAR' in similarity_scores.columns else stats_to_compare[0]
             
-            # Add target player to the WAR data
-            target_player_data = all_data[all_data['IDfg'] == target_player['IDfg']]
-            target_war = target_player_data['WAR'].mean() if 'WAR' in target_player_data.columns else 0
-            war_data.append({
-                'Name': target_player_name,
-                'WAR': target_war,
-                'Similarity': 1.0  # Perfect similarity with itself
-            })
+            # Prepare hover data
+            hover_data = ['Name', 'year' if mode == 'Season' else 'Years', 'Similarity'] + stats_to_compare
+
+            # Create the scatter plot
+            fig = px.scatter(
+                similarity_scores.head(num_similar_players),
+                x='Similarity',
+                y=y_stat,
+                hover_name='Name',
+                hover_data=hover_data,
+                title=f"Top {num_similar_players} Similar Players to {target_player_name} ({mode} Comparison)"
+            )
+
+            # Add target player as a different marker
+            target_data = pd.DataFrame([target_player])
+            if y_stat not in target_data.columns:
+                # Use the mean of the stat for the target player if not available
+                target_data[y_stat] = all_data[all_data['IDfg'] == target_player['IDfg']][y_stat].mean()
             
-            war_df = pd.DataFrame(war_data)
-            war_df = war_df.sort_values('Similarity', ascending=False)
-            
-            fig = px.bar(war_df, x='Name', y='WAR', 
-                         title=f"WAR Comparison: {target_player_name} vs Similar Players",
-                         labels={'WAR': 'Average WAR', 'Name': 'Player'},
-                         color='Similarity', color_continuous_scale='viridis')
-            
-            fig.update_layout(xaxis_tickangle=-45, xaxis_title="")
+            fig.add_trace(px.scatter(
+                target_data,
+                x=[1],  # Maximum similarity
+                y=[target_data[y_stat].iloc[0]],
+                hover_name='Name',
+                hover_data=[col for col in hover_data if col in target_data.columns],
+                color_discrete_sequence=['red']
+            ).data[0])
+
+            # Customize the layout
+            fig.update_layout(
+                xaxis_title="Similarity Score",
+                yaxis_title=y_stat,
+                showlegend=False
+            )
+
+            # Display the plot
             st.plotly_chart(fig)
 
     st.info(f"Note: This similarity comparison is for {player_type.lower()} only. To find similar {'pitchers' if player_type == 'Hitters' else 'hitters'}, please start a new similarity search.")
@@ -1027,7 +1107,6 @@ def custom_war_generator():
             mime="text/csv",
         )
 
-
 def how_is_he_the_goat():
     st.subheader("How is he the GOAT?")
 
@@ -1046,19 +1125,30 @@ def how_is_he_the_goat():
     This is a mathematical exercise and doesn't necessarily reflect real-world value. It's designed to explore what aspects of a player's performance would need to be emphasized to consider them the greatest.
     """)
 
-    player_type = st.radio("Select player type:", ("Hitters", "Pitchers"))
+    player_type = st.radio("Select player type:", ("Hitters", "Pitchers"), key="goat_player_type_radio")
     data_type = "Hitter" if player_type == "Hitters" else "Pitcher"
 
     data_df = load_and_filter_data(data_type)
 
     # Year range selection
     min_year, max_year = int(data_df['year'].min()), int(data_df['year'].max())
-    year_range = st.slider("Select year range:", min_year, max_year, (min_year, max_year))
+    year_range = st.slider("Select year range:", min_year, max_year, (min_year, max_year), key="goat_year_range_slider")
     data_df = data_df[(data_df['year'] >= year_range[0]) & (data_df['year'] <= year_range[1])]
 
-    # Player selection
+    # Player selection with defaults
     players = data_df['Name'].unique()
-    selected_player = st.selectbox("Select a player:", players)
+    default_player = "Shohei Ohtani" if data_type == "Hitter" else "Clayton Kershaw"
+    
+    # Check if the default player is in the dataset, if not use the first player in the list
+    if default_player not in players:
+        default_player = players[0]
+    
+    selected_player = st.selectbox(
+        "Select a player:",
+        players,
+        index=list(players).index(default_player),
+        key="goat_player_selectbox"
+    )
 
     # Define stats to use based on player type
     if data_type == "Hitter":
@@ -1157,7 +1247,6 @@ def how_is_he_the_goat():
             st.error(f"Sadly, it is impossible for {selected_player} to be the GOAT with the given stats and time frame.")
             st.write("Try adjusting the year range or selecting a different player.")
 
-# Update the main function to include the new option
 def main():
     st.title("Brock's Baseball Stats Explorer")
     
