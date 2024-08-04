@@ -204,54 +204,76 @@ def display_player_stats(player_data, player_type):
 def individual_player_view():
     st.subheader("Individual Player Statistics")
 
-    player_type = st.radio("Would you like to see stats for a hitter or a pitcher?", ("Hitter", "Pitcher"))
+    st.markdown("""
+    <style>
+    .big-font {
+        font-size:20px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<p class="big-font">Would you like to see stats for a hitter or a pitcher?</p>', unsafe_allow_html=True)
 
+    player_type = st.radio("", ("Hitter", "Pitcher"), key="individual_player_type_radio")
+    data_type = player_type
+
+    data_df = load_and_filter_data(data_type)
+    players = data_df['Name'].unique()
+    
     default_player = "Clayton Kershaw" if player_type == "Pitcher" else "Shohei Ohtani"
-    player_input = st.text_input("Enter player name or FanGraphs ID:", default_player)
+    if default_player not in players:
+        default_player = players[0]
+    
+    selected_player = st.selectbox(
+        "Select a player:",
+        players,
+        index=list(players).index(default_player),
+        key="individual_player_selectbox"
+    )
     
     if st.button("Load Player Data") or ('player_data' in st.session_state and st.session_state.player_data is not None):
         if 'player_data' not in st.session_state or st.session_state.player_data is None:
-            hitter_data = load_and_filter_data("Hitter", [player_input])
-            pitcher_data = load_and_filter_data("Pitcher", [player_input])
-            st.session_state.player_data = pd.concat([hitter_data, pitcher_data])
+            st.session_state.player_data = load_and_filter_data(data_type, [selected_player])
         
         if st.session_state.player_data.empty:
-            st.error(f"No data found for {player_input}")
+            st.error(f"No data found for {selected_player}")
         else:
-            st.success(f"Data loaded for {player_input}")
+            st.success(f"Data loaded for {selected_player}")
             
             filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] == player_type.lower()]
             
             if filtered_data.empty:
-                st.warning(f"No {player_type.lower()} data found for {player_input}. They might be a {['pitcher', 'hitter'][player_type == 'Hitter']}.")
+                st.warning(f"No {player_type.lower()} data found for {selected_player}. They might be a {['pitcher', 'hitter'][player_type == 'Hitter']}.")
                 if st.button(f"Show {['pitcher', 'hitter'][player_type == 'Hitter']} data instead"):
                     filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] != player_type.lower()]
             
             if not filtered_data.empty:
                 display_player_stats(filtered_data, player_type)
             else:
-                st.error(f"No data available for {player_input}")
+                st.error(f"No data available for {selected_player}")
 
 def compare_players_view():
     st.subheader("Compare Players")
 
-    player_type = st.radio("Would you like to compare hitters or pitchers?", ("Hitters", "Pitchers"))
+    player_type = st.radio("Would you like to compare hitters or pitchers?", ("Hitters", "Pitchers"), key="compare_player_type_radio")
     data_type = "Pitcher" if player_type == "Pitchers" else "Hitter"
 
-    st.subheader("Enter up to 10 player names or FanGraphs IDs (one per line):")
-    default_players = "Clayton Kershaw\nSandy Koufax" if data_type == "Pitcher" else "Shohei Ohtani\nMookie Betts"
-    player_inputs = st.text_area("Player Names or IDs", default_players).split('\n')
-    player_inputs = [input.strip() for input in player_inputs if input.strip()][:10]  # Limit to 10 players
+    data_df = load_and_filter_data(data_type)
+    players = data_df['Name'].unique()
 
-    if 'player_data' in st.session_state:
-        if st.session_state.player_data is None or (isinstance(st.session_state.player_data, pd.DataFrame) and len(st.session_state.player_data['IDfg'].unique()) == 1):
-            st.session_state.player_data = None
+    default_players = ["Clayton Kershaw", "Sandy Koufax"] if data_type == "Pitcher" else ["Shohei Ohtani", "Mookie Betts"]
+    default_players = [p for p in default_players if p in players]
+
+    selected_players = st.multiselect(
+        "Select up to 10 players:",
+        players,
+        default=default_players,
+        key="compare_players_multiselect"
+    )
 
     if st.button("Load Players Data") or ('player_data' in st.session_state and st.session_state.player_data is not None):
         if 'player_data' not in st.session_state or st.session_state.player_data is None:
-            hitter_data = load_and_filter_data("Hitter", player_inputs)
-            pitcher_data = load_and_filter_data("Pitcher", player_inputs)
-            st.session_state.player_data = pd.concat([hitter_data, pitcher_data])
+            st.session_state.player_data = load_and_filter_data(data_type, selected_players)
 
         if st.session_state.player_data.empty:
             st.error("No data found for the specified players")
