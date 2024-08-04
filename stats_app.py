@@ -33,23 +33,40 @@ def load_and_filter_data(data_type, player_names_or_ids=None):
             data = pd.read_csv(file_path)
             data['year'] = int(year)
             data['player_type'] = data_type.lower()
-            if player_names_or_ids:
-                player_data = data[
-                    data['Name'].isin(player_names_or_ids) | 
-                    data['IDfg'].astype(str).isin(player_names_or_ids)
-                ]
-                if not player_data.empty:
-                    all_data.append(player_data)
-            else:
-                all_data.append(data)
-    return pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
+            all_data.append(data)
+    
+    full_data = pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
+    
+    if player_names_or_ids:
+        filtered_data = full_data[
+            full_data['Name'].isin(player_names_or_ids) | 
+            full_data['IDfg'].astype(str).isin(player_names_or_ids)
+        ]
+        return filtered_data if not filtered_data.empty else pd.DataFrame()
+    else:
+        return full_data
+
+def load_and_prepare_data(data_type):
+    data_df = load_and_filter_data(data_type)
+    
+    # Calculate first and last year for each player
+    player_years = data_df.groupby('IDfg').agg({
+        'Name': 'first',
+        'year': ['min', 'max']
+    }).reset_index()
+    player_years.columns = ['IDfg', 'Name', 'FirstYear', 'LastYear']
+    
+    # Create unique labels for each player
+    player_years['Label'] = player_years.apply(lambda row: f"{row['Name']} ({row['FirstYear']}-{row['LastYear']})", axis=1)
+    
+    return data_df, player_years
 
 def get_team_color(team, team_colors):
     return team_colors.get(str(team).upper(), 'grey')
 
 def display_player_stats(player_data, player_type):
     team_colors = load_team_colors()
-    id_to_name = player_data.groupby('IDfg')['Name'].first().to_dict()
+    id_to_name = player_data.groupby('IDfg').apply(lambda x: f"{x['Name'].iloc[0]} ({x['year'].min()}-{x['year'].max()})").to_dict()
     player_data = player_data.sort_values(['IDfg', 'year'])
 
     # Define stat order for pitchers and hitters
@@ -65,7 +82,7 @@ def display_player_stats(player_data, player_type):
     for idfg in player_data['IDfg'].unique():
         player_career = player_data[player_data['IDfg'] == idfg]
         player_name = id_to_name[idfg]
-        st.write(f"{player_name} (ID: {idfg}): {player_career['year'].min()} - {player_career['year'].max()} ({len(player_career)} seasons)")
+        st.write(f"{player_name}: {player_career['year'].min()} - {player_career['year'].max()} ({len(player_career)} seasons)")
 
     st.header("Career Stats")
     career_stats = player_data.groupby('IDfg').agg(
@@ -217,40 +234,43 @@ def individual_player_view():
     player_type = st.radio("", ("Hitter", "Pitcher"), key="individual_player_type_radio")
     data_type = player_type
 
-    data_df = load_and_filter_data(data_type)
-    players = data_df['Name'].unique()
+    data_df, player_years = load_and_prepare_data(data_type)
     
-    default_player = "Clayton Kershaw" if player_type == "Pitcher" else "Shohei Ohtani"
-    if default_player not in players:
-        default_player = players[0]
+    # Set default player based on player type
+    default_player = "Shohei Ohtani" if player_type == "Hitter" else "Clayton Kershaw"
     
-    selected_player = st.selectbox(
+    # Find the label for the default player
+    default_player_label = player_years[player_years['Name'] == default_player]['Label'].iloc[0] if default_player in player_years['Name'].values else player_years['Label'].iloc[0]
+    
+    selected_player_label = st.selectbox(
         "Select a player:",
-        players,
-        index=list(players).index(default_player),
+        player_years['Label'],
+        index=player_years['Label'].tolist().index(default_player_label),
         key="individual_player_selectbox"
     )
     
+    selected_player_id = player_years[player_years['Label'] == selected_player_label]['IDfg'].iloc[0]
+    
     if st.button("Load Player Data") or ('player_data' in st.session_state and st.session_state.player_data is not None):
         if 'player_data' not in st.session_state or st.session_state.player_data is None:
-            st.session_state.player_data = load_and_filter_data(data_type, [selected_player])
+            st.session_state.player_data = data_df[data_df['IDfg'] == selected_player_id]
         
         if st.session_state.player_data.empty:
-            st.error(f"No data found for {selected_player}")
+            st.error(f"No data found for {selected_player_label}")
         else:
-            st.success(f"Data loaded for {selected_player}")
+            st.success(f"Data loaded for {selected_player_label}")
             
             filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] == player_type.lower()]
             
             if filtered_data.empty:
-                st.warning(f"No {player_type.lower()} data found for {selected_player}. They might be a {['pitcher', 'hitter'][player_type == 'Hitter']}.")
+                st.warning(f"No {player_type.lower()} data found for {selected_player_label}. They might be a {['pitcher', 'hitter'][player_type == 'Hitter']}.")
                 if st.button(f"Show {['pitcher', 'hitter'][player_type == 'Hitter']} data instead"):
                     filtered_data = st.session_state.player_data[st.session_state.player_data['player_type'] != player_type.lower()]
             
             if not filtered_data.empty:
                 display_player_stats(filtered_data, player_type)
             else:
-                st.error(f"No data available for {selected_player}")
+                st.error(f"No data available for {selected_player_label}")
 
 def compare_players_view():
     st.subheader("Compare Players")
@@ -258,22 +278,23 @@ def compare_players_view():
     player_type = st.radio("Would you like to compare hitters or pitchers?", ("Hitters", "Pitchers"), key="compare_player_type_radio")
     data_type = "Pitcher" if player_type == "Pitchers" else "Hitter"
 
-    data_df = load_and_filter_data(data_type)
-    players = data_df['Name'].unique()
+    data_df, player_years = load_and_prepare_data(data_type)
 
-    default_players = ["Clayton Kershaw", "Sandy Koufax"] if data_type == "Pitcher" else ["Shohei Ohtani", "Mookie Betts"]
-    default_players = [p for p in default_players if p in players]
+    default_players = ["Clayton Kershaw (2008-2023)", "Sandy Koufax (1955-1966)"] if data_type == "Pitcher" else ["Shohei Ohtani (2018-2023)", "Mookie Betts (2014-2023)"]
+    default_players = [p for p in default_players if p in player_years['Label'].values]
 
-    selected_players = st.multiselect(
+    selected_player_labels = st.multiselect(
         "Select up to 10 players:",
-        players,
+        player_years['Label'],
         default=default_players,
         key="compare_players_multiselect"
-    )
+    )[:10]  # Limit to 10 players
+
+    selected_player_ids = player_years[player_years['Label'].isin(selected_player_labels)]['IDfg'].tolist()
 
     if st.button("Load Players Data") or ('player_data' in st.session_state and st.session_state.player_data is not None):
         if 'player_data' not in st.session_state or st.session_state.player_data is None:
-            st.session_state.player_data = load_and_filter_data(data_type, selected_players)
+            st.session_state.player_data = data_df[data_df['IDfg'].isin(selected_player_ids)]
 
         if st.session_state.player_data.empty:
             st.error("No data found for the specified players")
@@ -871,34 +892,39 @@ def player_similarity_view():
 
     mode = st.radio("Select comparison mode:", ("Season", "Career"), key="comparison_mode_radio")
 
-    all_data = load_and_filter_data(data_type)
-    players = all_data[['IDfg', 'Name', 'player_type']].drop_duplicates()
+    data_df, player_years = load_and_prepare_data(data_type)
     
     # Set Clayton Kershaw as the default pitcher and Shohei Ohtani as the default hitter
     default_player = "Clayton Kershaw" if data_type == "Pitcher" else "Shohei Ohtani"
     
     # Check if the default player is in the dataset, if not use the first player in the list
-    if default_player not in players['Name'].unique():
-        default_player = players['Name'].iloc[0]
+    if default_player not in player_years['Name'].unique():
+        default_player = player_years['Name'].iloc[0]
     
-    target_player_name = st.selectbox(
+    # Create a dictionary mapping player labels to their IDfg
+    player_label_to_id = dict(zip(player_years['Label'], player_years['IDfg']))
+    
+    target_player_label = st.selectbox(
         f"Select a {player_type.lower()[:-1]}:",
-        players['Name'].unique(),
-        index=list(players['Name'].unique()).index(default_player),
+        player_years['Label'],
+        index=player_years['Label'].tolist().index(player_years[player_years['Name'] == default_player]['Label'].iloc[0]),
         key="player_name_selectbox"
     )
     
+    target_player_id = player_label_to_id[target_player_label]
+    target_player_name = player_years[player_years['IDfg'] == target_player_id]['Name'].iloc[0]
+    
     if mode == "Season":
-        seasons = sorted(all_data[all_data['Name'] == target_player_name]['year'].unique(), reverse=True)
+        seasons = sorted(data_df[data_df['IDfg'] == target_player_id]['year'].unique(), reverse=True)
         target_year = st.selectbox(
             "Select season:",
             seasons,
             index=0,
             key="season_selectbox"
         )
-        target_player = all_data[(all_data['Name'] == target_player_name) & (all_data['year'] == target_year)].iloc[0]
+        target_player = data_df[(data_df['IDfg'] == target_player_id) & (data_df['year'] == target_year)].iloc[0]
     else:
-        target_player = players[players['Name'] == target_player_name].iloc[0]
+        target_player = player_years[player_years['IDfg'] == target_player_id].iloc[0]
 
     num_similar_players = st.slider("Number of similar players to find:", 1, 20, 5, key="num_similar_players_slider")
     
@@ -907,7 +933,7 @@ def player_similarity_view():
     else:
         default_stats = ['WAR', 'AVG', 'OBP', 'SLG', 'wRC+', 'ISO', 'BB%', 'K%']
     
-    available_stats = [col for col in all_data.columns if col not in ['IDfg', 'Name', 'Team', 'year', 'player_type']]
+    available_stats = [col for col in data_df.columns if col not in ['IDfg', 'Name', 'Team', 'year', 'player_type']]
     stats_to_compare = st.multiselect(
         "Select stats to compare:",
         available_stats,
@@ -923,12 +949,12 @@ def player_similarity_view():
     )
 
     if st.button("Find Similar Players"):
-        similarity_scores = calculate_similarity_scores(all_data, target_player, stats_to_compare, mode.lower(), scaling_factor)
+        similarity_scores = calculate_similarity_scores(data_df, target_player, stats_to_compare, mode.lower(), scaling_factor)
         
         if similarity_scores.empty:
-            st.warning(f"No similar players found for {target_player_name} using the selected stats. This may be due to missing data for the selected player or stats. Try selecting different stats.")
+            st.warning(f"No similar players found for {target_player_label} using the selected stats. This may be due to missing data for the selected player or stats. Try selecting different stats.")
         else:
-            st.subheader(f"Players most similar to {target_player_name}")
+            st.subheader(f"Players most similar to {target_player_label}")
             for _, player in similarity_scores.head(num_similar_players).iterrows():
                 player_name = f"{player['Name']} ({player['year']})" if mode == "Season" else f"{player['Name']} ({player['First Year']}-{player['Last Year']})"
                 st.write(f"{player_name} (Similarity: {player['Similarity']:.2f})")
@@ -946,14 +972,14 @@ def player_similarity_view():
                 y=y_stat,
                 hover_name='Name',
                 hover_data=hover_data,
-                title=f"Top {num_similar_players} Similar Players to {target_player_name} ({mode} Comparison)"
+                title=f"Top {num_similar_players} Similar Players to {target_player_label} ({mode} Comparison)"
             )
 
             # Add target player as a different marker
             target_data = pd.DataFrame([target_player])
             if y_stat not in target_data.columns:
                 # Use the mean of the stat for the target player if not available
-                target_data[y_stat] = all_data[all_data['IDfg'] == target_player['IDfg']][y_stat].mean()
+                target_data[y_stat] = data_df[data_df['IDfg'] == target_player['IDfg']][y_stat].mean()
             
             fig.add_trace(px.scatter(
                 target_data,
@@ -1143,14 +1169,13 @@ def how_is_he_the_goat():
 
     Note: Some statistics are inversely weighted in the calculation. For batters, this includes stats like Strikeouts (SO) and Ground into Double Play (GDP), where lower values are better. For pitchers, this includes ERA, Walks (BB), and Hits Allowed (H), among others. The tool automatically adjusts for these "negative" stats in its calculations.
 
-
     This is a mathematical exercise and doesn't necessarily reflect real-world value. It's designed to explore what aspects of a player's performance would need to be emphasized to consider them the greatest.
     """)
 
     player_type = st.radio("Select player type:", ("Hitters", "Pitchers"), key="goat_player_type_radio")
     data_type = "Hitter" if player_type == "Hitters" else "Pitcher"
 
-    data_df = load_and_filter_data(data_type)
+    data_df, player_years = load_and_prepare_data(data_type)
 
     # Year range selection
     min_year, max_year = int(data_df['year'].min()), int(data_df['year'].max())
@@ -1158,19 +1183,23 @@ def how_is_he_the_goat():
     data_df = data_df[(data_df['year'] >= year_range[0]) & (data_df['year'] <= year_range[1])]
 
     # Player selection with defaults
-    players = data_df['Name'].unique()
     default_player = "Shohei Ohtani" if data_type == "Hitter" else "Clayton Kershaw"
     
     # Check if the default player is in the dataset, if not use the first player in the list
-    if default_player not in players:
-        default_player = players[0]
+    if default_player not in player_years['Name'].unique():
+        default_player = player_years['Name'].iloc[0]
     
-    selected_player = st.selectbox(
+    # Create a dictionary mapping player labels to their IDfg
+    player_label_to_id = dict(zip(player_years['Label'], player_years['IDfg']))
+    
+    selected_player_label = st.selectbox(
         "Select a player:",
-        players,
-        index=list(players).index(default_player),
+        player_years['Label'],
+        index=player_years['Label'].tolist().index(player_years[player_years['Name'] == default_player]['Label'].iloc[0]),
         key="goat_player_selectbox"
     )
+    
+    selected_player_id = player_label_to_id[selected_player_label]
 
     # Define stats to use based on player type
     if data_type == "Hitter":
@@ -1196,18 +1225,18 @@ def how_is_he_the_goat():
             if stat in scaled_data.columns:
                 scaled_data[stat] = 1 - scaled_data[stat]
 
-        # Group by player and take the mean of their stats
-        player_stats = scaled_data.groupby(data_df['Name']).mean()
+        # Group by player (using IDfg) and take the mean of their stats
+        player_stats = scaled_data.groupby(data_df['IDfg']).mean()
 
         # Handle missing data for the selected player
-        selected_player_stats = player_stats.loc[selected_player]
+        selected_player_stats = player_stats.loc[selected_player_id]
         available_stats = selected_player_stats.dropna().index
         player_stats = player_stats[available_stats]
 
         # Function to optimize
         def objective(weights):
             war = (player_stats * weights).sum(axis=1)
-            player_war = war[selected_player]
+            player_war = war[selected_player_id]
             return np.sum(np.maximum(0, war - player_war))  # Sum of how much others exceed the player
 
         # Constraints: sum of absolute weights = 1
@@ -1229,7 +1258,7 @@ def how_is_he_the_goat():
             war = (player_stats * optimal_weights).sum(axis=1)
             player_rankings = war.sort_values(ascending=False)
             
-            st.success(f"Optimal weights found to make {selected_player} the GOAT!")
+            st.success(f"Optimal weights found to make {selected_player_label} the GOAT!")
             
             # Display weights in ranked order
             st.subheader("Optimal Weights (Ranked by Importance):")
@@ -1242,17 +1271,19 @@ def how_is_he_the_goat():
             
             # Display player ranking
             st.subheader("Top 10 Players with these weights:")
-            st.table(player_rankings.head(10))
+            top_10_players = player_rankings.head(10)
+            top_10_labels = player_years.set_index('IDfg').loc[top_10_players.index, 'Label']
+            st.table(pd.DataFrame({'Player': top_10_labels, 'Score': top_10_players}))
             
             # Show selected player's rank
-            player_rank = player_rankings.index.get_loc(selected_player) + 1
-            st.write(f"{selected_player}'s rank with these weights: {player_rank}")
+            player_rank = player_rankings.index.get_loc(selected_player_id) + 1
+            st.write(f"{selected_player_label}'s rank with these weights: {player_rank}")
 
             # Generate explanation
             top_positive_stats = weight_df[weight_df['Weight'] > 0].nlargest(3, 'Abs_Weight')['Stat'].tolist()
             top_negative_stats = weight_df[weight_df['Weight'] < 0].nlargest(2, 'Abs_Weight')['Stat'].tolist()
             
-            explanation = f"{selected_player} is considered the GOAT in this analysis primarily due to "
+            explanation = f"{selected_player_label} is considered the GOAT in this analysis primarily due to "
             explanation += f"their exceptional performance in {', '.join(top_positive_stats[:-1])}, and {top_positive_stats[-1]}. "
             if top_negative_stats:
                 explanation += f"The model also values their ability to minimize {' and '.join(top_negative_stats)}. "
@@ -1266,36 +1297,36 @@ def how_is_he_the_goat():
             st.write(", ".join(available_stats))
             
         else:
-            st.error(f"Sadly, it is impossible for {selected_player} to be the GOAT with the given stats and time frame.")
+            st.error(f"Sadly, it is impossible for {selected_player_label} to be the GOAT with the given stats and time frame.")
             st.write("Try adjusting the year range or selecting a different player.")
 
 def generate_astros_cheating_fact():
     facts = [
         "The 2017 Astros are spineless cheaters. In 2017, the Houston Astros stooped to unimaginable lows, orchestrating a despicable sign-stealing scheme that made a mockery of America's pastime. Their actions were nothing short of a baseball war crime.",
-        "The 2017 Astros are spineless cheaters. The Astros' brazen cheating involved a center-field camera, turning their home field into a high-tech den of deceit. This pathetic display of cowardice left the baseball world reeling in disgust.",
-        "The 2017 Astros are spineless cheaters. The 2017 World Series 'victory' by the Astros stands as a monument to their utter lack of sportsmanship. It's not a championship; it's a permanent scar on the face of professional sports.",
-        "The 2017 Astros are spineless cheaters. The gutless weasels in the Astros organization didn't just cheat the game; they ruthlessly sabotaged the careers of countless pitchers. Their actions were nothing short of baseball terrorism.",
-        "The 2017 Astros are spineless cheaters. The Astros demonstrated the emotional range of a sociopath, showing zero remorse until caught red-handed. Their crocodile tears fooled no one and only deepened the baseball world's revulsion.",
-        "The 2017 Astros are spineless cheaters. The sound of trash cans banging in Minute Maid Park wasn't just signal stealing; it was the death knell of integrity in Houston. The Astros turned their stadium into a dumpster fire of dishonesty.",
-        "The 2017 Astros are spineless cheaters. The Astros' cheating scandal was a nuclear bomb to fan trust, obliterating the notion of fair play and turning their achievements into a twisted joke that continues to nauseate true baseball fans.",
-        "The 2017 Astros are spineless cheaters. The slap on the wrist the Astros received for their atrocities was an insult to justice. It's as if they committed grand larceny and got away with a parking ticket.",
-        "The 2017 Astros are spineless cheaters. The Astros' win-at-all-costs mentality is a cautionary tale of greed and moral bankruptcy. They didn't just cross the line; they gleefully erased it while cackling like cartoon villains.",
-        "The 2017 Astros are spineless cheaters. Years later, the stench of the Astros' cheating still lingers like a toxic cloud over baseball. Their legacy is not one of victory, but of shame, deceit, and the utter desecration of fair play.",
-        "The 2017 Astros are spineless cheaters. The Astros didn't just bend the rules; they snapped them in half and set fire to the remnants. Their cheating scheme was so elaborate it makes Watergate look like a minor misunderstanding.",
-        "The 2017 Astros are spineless cheaters. Houston's 2017 season wasn't a display of talent; it was a masterclass in duplicity that would make Machiavelli blush. They didn't win games; they stole them with all the subtlety of a sledgehammer.",
-        "The 2017 Astros are spineless cheaters. The Astros turned baseball into a farce, reducing America's pastime to a cheap carnival game where they always knew which milk bottle had the baseball under it.",
-        "The 2017 Astros are spineless cheaters. If there were a Hall of Shame, the 2017 Astros would be first-ballot inductees. Their cheating scandal is a stain so deep, even Lady Macbeth would say, 'Yeah, that's not coming out.'",
-        "The 2017 Astros are spineless cheaters. The Astros didn't just tarnish their own reputation; they dragged the entire sport through the mud. It's as if they were on a mission to destroy everything pure about baseball.",
-        "The 2017 Astros are spineless cheaters. Houston's sign-stealing scheme wasn't just cheating; it was a calculated assault on the integrity of baseball. They didn't just break the rules; they blew them to smithereens with gleeful abandon.",
-        "The 2017 Astros are spineless cheaters. The 2017 Astros didn't earn their wins; they pilfered them like common thieves. Their World Series title is as legitimate as a three-dollar bill and twice as offensive.",
-        "The 2017 Astros are spineless cheaters. Watching the Astros' half-hearted apologies was like witnessing a master class in insincerity. They weren't sorry they cheated; they were sorry they got caught.",
-        "The 2017 Astros are spineless cheaters. The Astros didn't just disrespect their opponents; they spat in the face of every fan who ever believed in fair competition. Their actions were a betrayal of cosmic proportions.",
-        "The 2017 Astros are spineless cheaters. Houston's cheating scheme was so audacious, it makes the Black Sox scandal look like a minor league fumble. They didn't just sell out; they burnt the whole stadium down.",
-        "The 2017 Astros are spineless cheaters. The Astros didn't play baseball in 2017; they conducted a clinic in how to bastardize a beloved sport. Every trash can bang was another nail in the coffin of their integrity.",
-        "The 2017 Astros are spineless cheaters. If there were an Oscar for 'Best Performance in Destroying Baseball's Integrity,' the 2017 Astros would win it unanimously. Their acting skills in pretending to win fairly were truly award-worthy.",
-        "The 2017 Astros are spineless cheaters. The Astros didn't just cheat their way to a World Series; they cheated every kid who ever looked up to them. Their legacy is a cautionary tale of how not to be a role model.",
-        "The 2017 Astros are spineless cheaters. Houston's sign-stealing antics weren't just unsportsmanlike; they were a middle finger to the very concept of fair play. They turned a level playing field into a tilted circus act.",
-        "The 2017 Astros are spineless cheaters. The Astros didn't break the rules; they atomized them, leaving behind a wasteland where integrity used to stand. Their 2017 season was less a sporting achievement and more a criminal enterprise."
+        "The 2017 Astros are worthless cheaters. The Astros' brazen cheating involved a center-field camera, turning their home field into a high-tech den of deceit. This pathetic display of cowardice left the baseball world reeling in disgust.",
+        "The 2017 Astros are morally-bankrupt cheaters. The 2017 World Series 'victory' by the Astros stands as a monument to their utter lack of sportsmanship. It's not a championship; it's a permanent scar on the face of professional sports.",
+        "The 2017 Astros are disgraceful cheaters. The gutless weasels in the Astros organization didn't just cheat the game; they ruthlessly sabotaged the careers of countless pitchers. Their actions were nothing short of baseball terrorism.",
+        "The 2017 Astros are cowardly cheaters. The Astros demonstrated the emotional range of a sociopath, showing zero remorse until caught red-handed. Their crocodile tears fooled no one and only deepened the baseball world's revulsion.",
+        "The 2017 Astros are gutless cheaters. The sound of trash cans banging in Minute Maid Park wasn't just signal stealing; it was the death knell of integrity in Houston. The Astros turned their stadium into a dumpster fire of dishonesty.",
+        "The 2017 Astros are spiritless cheaters. The Astros' cheating scandal was a nuclear bomb to fan trust, obliterating the notion of fair play and turning their achievements into a twisted joke that continues to nauseate true baseball fans.",
+        "The 2017 Astros are weak-willed cheaters. The slap on the wrist the Astros received for their atrocities was an insult to justice. It's as if they committed grand larceny and got away with a parking ticket.",
+        "The 2017 Astros are shameful cheaters. The Astros' win-at-all-costs mentality is a cautionary tale of greed and moral bankruptcy. They didn't just cross the line; they gleefully erased it while cackling like cartoon villains.",
+        "The 2017 Astros are disgusting cheaters. Years later, the stench of the Astros' cheating still lingers like a toxic cloud over baseball. Their legacy is not one of victory, but of shame, deceit, and the utter desecration of fair play.",
+        "The 2017 Astros are infamous cheaters. The Astros didn't just bend the rules; they snapped them in half and set fire to the remnants. Their cheating scheme was so elaborate it makes Watergate look like a minor misunderstanding.",
+        "The 2017 Astros are reprehensible cheaters. Houston's 2017 season wasn't a display of talent; it was a masterclass in duplicity that would make Machiavelli blush. They didn't win games; they stole them with all the subtlety of a sledgehammer.",
+        "The 2017 Astros are deplorable cheaters. The Astros turned baseball into a farce, reducing America's pastime to a cheap carnival game where they always knew which milk bottle had the baseball under it.",
+        "The 2017 Astros are scandalous cheaters. If there were a Hall of Shame, the 2017 Astros would be first-ballot inductees. Their cheating scandal is a stain so deep, even Lady Macbeth would say, 'Yeah, that's not coming out.'",
+        "The 2017 Astros are shameful cheaters. The Astros didn't just tarnish their own reputation; they dragged the entire sport through the mud. It's as if they were on a mission to destroy everything pure about baseball.",
+        "The 2017 Astros are ignominious cheaters. Houston's sign-stealing scheme wasn't just cheating; it was a calculated assault on the integrity of baseball. They didn't just break the rules; they blew them to smithereens with gleeful abandon.",
+        "The 2017 Astros are unworthy cheaters. The 2017 Astros didn't earn their wins; they pilfered them like common thieves. Their World Series title is as legitimate as a three-dollar bill and twice as offensive.",
+        "The 2017 Astros are sordid cheaters. Watching the Astros' half-hearted apologies was like witnessing a master class in insincerity. They weren't sorry they cheated; they were sorry they got caught.",
+        "The 2017 Astros are despicable cheaters. The Astros didn't just disrespect their opponents; they spat in the face of every fan who ever believed in fair competition. Their actions were a betrayal of cosmic proportions.",
+        "The 2017 Astros are appalling cheaters. Houston's cheating scheme was so audacious, it makes the Black Sox scandal look like a minor league fumble. They didn't just sell out; they burnt the whole stadium down.",
+        "The 2017 Astros are revolting cheaters. The Astros didn't play baseball in 2017; they conducted a clinic in how to bastardize a beloved sport. Every trash can bang was another nail in the coffin of their integrity.",
+        "The 2017 Astros are abhorrent cheaters. If there were an Oscar for 'Best Performance in Destroying Baseball's Integrity,' the 2017 Astros would win it unanimously. Their acting skills in pretending to win fairly were truly award-worthy.",
+        "The 2017 Astros are loathsome cheaters. The Astros didn't just cheat their way to a World Series; they cheated every kid who ever looked up to them. Their legacy is a cautionary tale of how not to be a role model.",
+        "The 2017 Astros are bitch-ass cheaters. Houston's sign-stealing antics weren't just unsportsmanlike; they were a middle finger to the very concept of fair play. They turned a level playing field into a tilted circus act.",
+        "The 2017 Astros are galactic-level cheaters. The Astros didn't break the rules; they atomized them, leaving behind a wasteland where integrity used to stand. Their 2017 season was less a sporting achievement and more a criminal enterprise."
     ]
     return random.choice(facts)
 
