@@ -49,6 +49,12 @@ def load_and_filter_data(data_type, player_names_or_ids=None):
 def load_and_prepare_data(data_type):
     data_df = load_and_filter_data(data_type)
     
+    # Replace NaN values in IDfg with a placeholder (e.g., -1)
+    data_df['IDfg'] = data_df['IDfg'].fillna(-1)
+    
+    # Convert IDfg to integer
+    data_df['IDfg'] = data_df['IDfg'].astype(int)
+    
     # Calculate first and last year for each player
     player_years = data_df.groupby('IDfg').agg({
         'Name': 'first',
@@ -76,7 +82,7 @@ def display_player_stats(player_data, player_type):
     stat_order = pitcher_stat_order if player_type == "Pitcher" else hitter_stat_order
 
     # Define rate stats (stats that should be averaged instead of summed)
-    rate_stats = ['AVG', 'OBP', 'SLG', 'OPS', 'BB%', 'K%', 'ISO', 'BABIP', 'wRC+', 'wOBA', 'WAR', 'ERA', 'WHIP', 'K/9', 'BB/9', 'H/9','HR/9', 'K/BB', 'FIP', 'xFIP']
+    rate_stats = ['AVG', 'OBP', 'SLG', 'OPS', 'BB%', 'K%', 'ISO', 'BABIP', 'wRC+', 'wOBA', 'ERA', 'WHIP', 'K/9', 'BB/9', 'H/9','HR/9', 'K/BB', 'FIP', 'xFIP']
 
     st.header("Career Summary")
     for idfg in player_data['IDfg'].unique():
@@ -91,13 +97,13 @@ def display_player_stats(player_data, player_type):
          if col not in ['year', 'IDfg']}
     )
     career_stats['Name'] = career_stats.index.map(id_to_name)
-    
+
     if 'Age' in career_stats.columns:
         age_col = career_stats.pop('Age')
         career_stats['Age'] = age_col
 
     career_stats = career_stats.reset_index().set_index(['Name', 'IDfg'])
-    
+
     # Reorder columns based on stat_order
     ordered_cols = [col for col in stat_order if col in career_stats.columns]
     other_cols = [col for col in career_stats.columns if col not in ordered_cols and col not in ['Name', 'IDfg']]
@@ -119,12 +125,19 @@ def display_player_stats(player_data, player_type):
     st.header("Yearly Stats")
     yearly_stats = player_data.copy()
     yearly_stats['Name'] = yearly_stats['IDfg'].map(id_to_name)
-    
+
+    # Remove the 'season' column if it exists
+    if 'season' in yearly_stats.columns:
+        yearly_stats = yearly_stats.drop('season', axis=1)
+
+    # Define the new order for the first few columns
+    first_cols = ['Name', 'IDfg', 'year', 'Age', 'Team', 'WAR']
+
     # Reorder columns for yearly stats
-    ordered_cols = ['Name', 'IDfg', 'year'] + [col for col in stat_order if col in yearly_stats.columns]
+    ordered_cols = first_cols + [col for col in stat_order if col in yearly_stats.columns and col not in first_cols]
     other_cols = [col for col in yearly_stats.columns if col not in ordered_cols]
     yearly_stats = yearly_stats[ordered_cols + other_cols]
-    
+
     formatted_yearly_stats = yearly_stats.applymap(format_number)
     st.dataframe(formatted_yearly_stats.set_index(['Name', 'IDfg', 'year']))
 
@@ -142,7 +155,7 @@ def display_player_stats(player_data, player_type):
 
     # Season-by-season plot
     fig = px.line(player_data, x='year', y=selected_stat, color='IDfg', 
-                  title=f"{selected_stat} Over Time",
+                  title=f"Yearly {selected_stat}",
                   hover_data={'IDfg': False, 'Name': True, selected_stat: ':.2f'})
 
     fig.update_traces(hovertemplate='Name: %{customdata[0]}<br>Year: %{x}<br>' + f'{selected_stat}: ' + '%{y:.2f}<extra></extra>')
@@ -175,11 +188,11 @@ def display_player_stats(player_data, player_type):
                 weight = 'PA' if 'PA' in group.columns else 'G'
             
             group[f'Career_Avg_{selected_stat}'] = (group[selected_stat] * group[weight]).cumsum() / group[weight].cumsum()
-            title = f"Weighted Career Average {selected_stat} Over Time"
+            title = f"Yearly Career Average {selected_stat}"
             y_axis = f'Career_Avg_{selected_stat}'
         else:
             group[f'Cumulative_{selected_stat}'] = group[selected_stat].cumsum()
-            title = f"Cumulative {selected_stat} Over Career Years"
+            title = f"Cumulative {selected_stat} Over Career"
             y_axis = f'Cumulative_{selected_stat}'
         
         career_data.append(group)
